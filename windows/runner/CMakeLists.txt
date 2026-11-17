@@ -47,14 +47,12 @@ target_sources(${BINARY_NAME} PRIVATE
 set_source_files_properties(
   "${SPEECH_TO_TEXT_WINDOWS_DIR}/speech_to_text_windows.cpp"
   "${SPEECH_TO_TEXT_WINDOWS_DIR}/speech_to_text_windows_plugin.cpp"
-  PROPERTIES COMPILE_OPTIONS "/W3;/WX-;/wd4996;/wd4245;/wd4100")
+  PROPERTIES
+    COMPILE_OPTIONS "/W3;/WX-;/wd4996;/wd4245;/wd4100"
+    COMPILE_DEFINITIONS "WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS")
 target_include_directories(${BINARY_NAME} PRIVATE
   "${SPEECH_TO_TEXT_WINDOWS_DIR}"
   "${SPEECH_TO_TEXT_WINDOWS_DIR}/include")
-target_compile_definitions(${BINARY_NAME} PRIVATE
-  WIN32_LEAN_AND_MEAN
-  _CRT_SECURE_NO_WARNINGS
-  _WINSOCK_DEPRECATED_NO_WARNINGS)
 target_compile_options(${BINARY_NAME} PRIVATE /wd4996 /wd4245)
 target_link_libraries(${BINARY_NAME} PRIVATE
   flutter_wrapper_plugin
