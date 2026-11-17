@@ -1,0 +1,5276 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:http/http.dart' as http;
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+const ink = Color(0xFF19352F);
+const forest = Color(0xFF17594E);
+const teal = Color(0xFF13796D);
+const mint = Color(0xFFE6F3EF);
+const paper = Color(0xFFF5F7F5);
+const line = Color(0xFFE7ECE9);
+const amber = Color(0xFFFFF1D8);
+const redSoft = Color(0xFFFFE9E5);
+const _assistantEndpoint =
+    'https://campuscare-reception-demo.vercel.app/api/assistant';
+
+void main() => runApp(const ReceptionDemo());
+
+class ReceptionDemo extends StatefulWidget {
+  const ReceptionDemo({super.key});
+  @override
+  State<ReceptionDemo> createState() => _ReceptionDemoState();
+}
+
+class _ReceptionDemoState extends State<ReceptionDemo> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _speech = stt.SpeechToText();
+  final _tts = FlutterTts();
+  bool _speechReady = false;
+  bool _preferOnDeviceSpeech = true;
+  String? _speechLocale;
+  bool _voiceSession = false;
+  bool _listening = false;
+  bool _processing = false;
+  bool _highContrast = false;
+  bool _largeText = false;
+  bool _assistantBusy = false;
+  String _assistantError = '';
+  bool _ttsSpeaking = false;
+  bool _greetingPlaying = false;
+  int _listenFailures = 0;
+  Timer? _listenRestartTimer;
+  String _lastSpeechText = '';
+  int _speechGeneration = 0;
+  StateSetter? _popupRebuild;
+  String _transcript = '';
+  String _heardPhrase = '';
+  String _interpretation = '';
+  double? _matchConfidence;
+  List<String> _pendingChoices = [];
+  String _page = 'AI copilot';
+  String _search = '';
+  int _chatCount = 0;
+  final List<_Appointment> _appointments = [];
+  final List<_Call> _calls = [];
+  final List<_Note> _notes = [];
+  final List<_Enquiry> _enquiries = [];
+  final List<_Document> _documents = [];
+  final List<_EmailDraft> _emails = [];
+  final List<_Visitor> _visitors = [];
+  final List<_ReceptionTask> _tasks = [];
+  final List<_ChatLine> _chat = [];
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _appointments.addAll([
+      _Appointment(
+        'Welcome and registration help',
+        'Lerato Mokoena',
+        DateTime(now.year, now.month, now.day, 9, 30),
+        'Office 2 · Main block',
+        'Registration support',
+      ),
+      _Appointment(
+        'Course change discussion',
+        'Thabo Khumalo',
+        DateTime(now.year, now.month, now.day, 11, 0),
+        'Office 2 · Main block',
+        'Academic support',
+      ),
+      _Appointment(
+        'Financial aid follow-up',
+        'Amina Dlamini',
+        DateTime(now.year, now.month, now.day, 14, 15),
+        'Online · phone call',
+        'Financial aid',
+      ),
+      _Appointment(
+        'New learner orientation',
+        'Neo Nkosi',
+        DateTime(now.year, now.month, now.day + 1, 10, 0),
+        'Student Support office',
+        'Orientation',
+      ),
+    ]);
+    _calls.addAll([
+      _Call(
+        'Nomsa Maseko',
+        '071 555 0192',
+        'Asked about a replacement student card.',
+        true,
+        'High',
+        DateTime(now.year, now.month, now.day, 8, 45),
+      ),
+      _Call(
+        'Peter Dube',
+        '072 555 0144',
+        'Needs a call back about transport support.',
+        true,
+        'Normal',
+        DateTime(now.year, now.month, now.day, 9, 12),
+      ),
+      _Call(
+        'Unknown caller',
+        '011 555 0120',
+        'Asked for the student support office hours.',
+        false,
+        'Low',
+        DateTime(now.year, now.month, now.day, 9, 38),
+      ),
+    ]);
+    _notes.addAll([
+      _Note(
+        'Orientation checklist',
+        'Confirm room access, learner list and printed welcome packs.',
+        DateTime(now.year, now.month, now.day, 8, 10),
+      ),
+      _Note(
+        'Morning handover',
+        'Follow up on two calls and prepare the replacement card information.',
+        DateTime(now.year, now.month, now.day, 8, 25),
+      ),
+    ]);
+    _enquiries.addAll([
+      _Enquiry(
+        'Lerato Mokoena',
+        'Registration',
+        'Learner needs help finding the correct registration form.',
+        'In progress',
+        'Normal',
+      ),
+      _Enquiry(
+        'Sibusiso Ndlovu',
+        'Accessibility',
+        'Asked for information about accessible campus routes.',
+        'Waiting',
+        'High',
+      ),
+      _Enquiry(
+        'Amina Dlamini',
+        'Financial aid',
+        'Needs an update about her bursary documents.',
+        'New',
+        'Normal',
+      ),
+      _Enquiry(
+        'Thabo Khumalo',
+        'Academic support',
+        'Requested a meeting about changing courses.',
+        'New',
+        'Low',
+      ),
+    ]);
+    _documents.addAll([
+      _Document(
+        'Appointment confirmation',
+        'Prepared for Lerato Mokoena',
+        DateTime(now.year, now.month, now.day, 8, 30),
+      ),
+      _Document(
+        'Call-back message',
+        'Prepared for Student Support Services',
+        DateTime(now.year, now.month, now.day, 8, 55),
+      ),
+    ]);
+    _emails.add(
+      _EmailDraft(
+        'Student Support Manager',
+        'Follow-up on learner registration assistance',
+        'Dear Student Support Manager,\n\nI am following up on the learner registration assistance discussed at reception. Please let me know if any further information is needed.\n\nKind regards,\nStudent Support Reception',
+        DateTime(now.year, now.month, now.day, 9, 5),
+      ),
+    );
+    _visitors.addAll([
+      _Visitor(
+        'Sample visitor',
+        'Student Support',
+        'Registration question',
+        DateTime.now(),
+      ),
+    ]);
+    _tasks.addAll([
+      _ReceptionTask(
+        'Prepare the welcome packs',
+        'Confirm the learner list and room access.',
+        DateTime.now(),
+        false,
+      ),
+      _ReceptionTask(
+        'Return transport support call',
+        'Call Peter Dube back.',
+        DateTime.now(),
+        false,
+      ),
+      _ReceptionTask(
+        'File yesterday’s handover',
+        'Move completed items to the daily folder.',
+        DateTime.now(),
+        true,
+      ),
+    ]);
+    _chat.add(
+      const _ChatLine(
+        false,
+        'Hello, I’m Liyabona AI. Tell me what you need. I can open a screen, capture a note, add a task, organise visitor check-in, log a call, schedule an appointment, or answer a reception question.',
+      ),
+    );
+    _tts.setLanguage('en-ZA');
+    _tts.setSpeechRate(.85);
+    _tts.awaitSpeakCompletion(false);
+    _tts.setStartHandler(() {
+      _ttsSpeaking = true;
+      _refreshAssistantPopup();
+    });
+    _tts.setCompletionHandler(() {
+      _ttsSpeaking = false;
+      _refreshAssistantPopup();
+    });
+    _tts.setCancelHandler(() {
+      _ttsSpeaking = false;
+      _refreshAssistantPopup();
+    });
+    _tts.setErrorHandler((_) {
+      _ttsSpeaking = false;
+      _refreshAssistantPopup();
+    });
+  }
+
+  @override
+  void dispose() {
+    _listenRestartTimer?.cancel();
+    _speech.stop();
+    _tts.stop();
+    super.dispose();
+  }
+
+  List<_NavItem> get _nav => const [
+    _NavItem('Home', Icons.grid_view_rounded),
+    _NavItem('Calendar', Icons.calendar_month_rounded),
+    _NavItem('Call log', Icons.call_rounded),
+    _NavItem('Enquiries', Icons.assignment_outlined),
+    _NavItem('Notes', Icons.sticky_note_2_outlined),
+    _NavItem('Documents', Icons.description_outlined),
+    _NavItem('Emails', Icons.mark_email_unread_outlined),
+    _NavItem('Learners', Icons.people_alt_outlined),
+    _NavItem('Knowledge', Icons.menu_book_outlined),
+    _NavItem('AI copilot', Icons.auto_awesome_rounded),
+    _NavItem('Visitors', Icons.badge_outlined),
+    _NavItem('Tasks', Icons.task_alt_rounded),
+  ];
+
+  Future<void> _speak(String text, {bool toggle = false}) async {
+    if (text.trim().isEmpty) return;
+    if (toggle && _ttsSpeaking && _lastSpeechText == text) {
+      _stopSpeaking();
+      return;
+    }
+    final generation = ++_speechGeneration;
+    _lastSpeechText = text;
+    try {
+      _ttsSpeaking = false;
+      await _tts.stop();
+      if (generation != _speechGeneration) return;
+      _ttsSpeaking = true;
+      _refreshAssistantPopup();
+      await _tts.speak(text);
+    } catch (_) {
+      if (generation != _speechGeneration) return;
+      try {
+        _ttsSpeaking = true;
+        await _tts.setLanguage('en-US');
+        if (generation != _speechGeneration) return;
+        await _tts.speak(text);
+      } catch (_) {
+        if (generation == _speechGeneration) _ttsSpeaking = false;
+        if (mounted)
+          _announce(
+            'Spoken replies are unavailable on this device. Check its speech and audio settings.',
+          );
+      }
+    }
+  }
+
+  void _stopSpeaking() {
+    _speechGeneration++;
+    _ttsSpeaking = false;
+    unawaited(_tts.stop());
+    _refreshAssistantPopup();
+  }
+
+  void _refreshAssistantPopup() {
+    final rebuild = _popupRebuild;
+    if (rebuild == null || !mounted) return;
+    try {
+      rebuild(() {});
+    } catch (_) {
+      _popupRebuild = null;
+    }
+  }
+
+  Future<_AssistantResult?> _askModel(String text) async {
+    try {
+      final history = _chat.toList();
+      if (history.isNotEmpty &&
+          history.last.user &&
+          history.last.text == text) {
+        history.removeLast();
+      }
+      final response = await http
+          .post(
+            Uri.parse(_assistantEndpoint),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'text': text,
+              'screen': _page,
+              'summary': _pageSummary(),
+              'history': history
+                  .skip(history.length > 6 ? history.length - 6 : 0)
+                  .map(
+                    (line) => {
+                      'role': line.user ? 'user' : 'assistant',
+                      'content': line.text,
+                    },
+                  )
+                  .toList(),
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) {
+        final body = jsonDecode(response.body);
+        final code = body is Map ? body['gatewayCode'] : null;
+        _assistantError = code == 'customer_verification_required'
+            ? 'Vercel AI Gateway needs a valid payment method before it can serve this model.'
+            : body is Map && body['error'] is String
+            ? body['error'] as String
+            : 'AI service is temporarily unavailable.';
+        return null;
+      }
+      final data = jsonDecode(response.body);
+      if (data is! Map<String, dynamic>) return null;
+      _assistantError = '';
+      return _AssistantResult.fromJson(data);
+    } catch (_) {
+      _assistantError =
+          'Could not reach Liyabona AI. Check the network and try again.';
+      return null;
+    }
+  }
+
+  void _applyAssistantAction(_AssistantResult result) {
+    final f = result.fields;
+    switch (result.action) {
+      case 'navigate':
+        if (_nav.any((item) => item.label == result.destination)) {
+          _go(result.destination);
+        }
+        break;
+      case 'read_screen':
+      case 'answer':
+      case 'clarify':
+        break;
+      case 'create_note':
+        setState(
+          () => _notes.insert(
+            0,
+            _Note(
+              f['title']?.trim().isNotEmpty == true
+                  ? f['title']!.trim()
+                  : 'Reception note',
+              f['body']?.trim().isNotEmpty == true
+                  ? f['body']!.trim()
+                  : result.reply,
+              DateTime.now(),
+            ),
+          ),
+        );
+        _go('Notes');
+        break;
+      case 'create_task':
+        setState(
+          () => _tasks.insert(
+            0,
+            _ReceptionTask(
+              f['title']?.trim().isNotEmpty == true
+                  ? f['title']!.trim()
+                  : 'Reception follow-up',
+              f['detail']?.trim().isNotEmpty == true
+                  ? f['detail']!.trim()
+                  : 'Added by Liyabona AI.',
+              DateTime.now(),
+              false,
+            ),
+          ),
+        );
+        _go('Tasks');
+        break;
+      case 'visitor_checkin':
+        final name = f['name']?.trim() ?? '';
+        if (name.isNotEmpty) {
+          setState(
+            () => _visitors.insert(
+              0,
+              _Visitor(
+                name,
+                f['host'] ?? 'Student Support',
+                f['purpose'] ?? 'Campus visit',
+                DateTime.now(),
+              ),
+            ),
+          );
+          _go('Visitors');
+        }
+        break;
+      case 'visitor_checkout':
+        final name = (f['name'] ?? '').toLowerCase();
+        final found = _visitors
+            .where(
+              (v) =>
+                  v.checkedOut == null &&
+                  (name.isEmpty || v.name.toLowerCase().contains(name)),
+            )
+            .toList();
+        if (found.isNotEmpty) {
+          setState(() => found.first.checkedOut = DateTime.now());
+          _go('Visitors');
+        }
+        break;
+      case 'create_call':
+        setState(
+          () => _calls.insert(
+            0,
+            _Call(
+              f['name']?.trim().isNotEmpty == true
+                  ? f['name']!.trim()
+                  : 'Voice caller',
+              f['phone'] ?? '',
+              f['detail'] ?? 'Details captured by reception.',
+              f['callback'] != 'false',
+              f['priority'] ?? 'Normal',
+              DateTime.now(),
+            ),
+          ),
+        );
+        _go('Call log');
+        break;
+      case 'create_appointment':
+        final parsed = DateTime.tryParse(f['dateTime'] ?? '');
+        final scheduled = parsed ?? DateTime.now().add(const Duration(days: 1));
+        setState(
+          () => _appointments.insert(
+            0,
+            _Appointment(
+              f['title'] ?? 'Reception appointment',
+              f['name'] ?? 'Walk-in learner',
+              scheduled,
+              f['location'] ?? 'Student Support office',
+              f['detail'] ?? '',
+            ),
+          ),
+        );
+        _go('Calendar');
+        break;
+      case 'create_enquiry':
+        setState(
+          () => _enquiries.insert(
+            0,
+            _Enquiry(
+              f['name'] ?? 'Walk-in learner',
+              f['category'] ?? 'General enquiry',
+              f['detail'] ?? result.reply,
+              'New',
+              f['priority'] ?? 'Normal',
+            ),
+          ),
+        );
+        _go('Enquiries');
+        break;
+      case 'create_document':
+        setState(
+          () => _documents.insert(
+            0,
+            _Document(
+              f['title'] ?? 'Reception document draft',
+              f['detail'] ?? 'Draft created by Liyabona AI.',
+              DateTime.now(),
+            ),
+          ),
+        );
+        _go('Documents');
+        break;
+      case 'create_email':
+        setState(
+          () => _emails.insert(
+            0,
+            _EmailDraft(
+              f['recipient'] ?? 'Recipient to be confirmed',
+              f['subject'] ?? 'Student Support follow-up',
+              f['body'] ?? result.reply,
+              DateTime.now(),
+            ),
+          ),
+        );
+        _go('Emails');
+        break;
+      case 'find_learner':
+        _go('Learners');
+        if ((f['name'] ?? '').isNotEmpty) setState(() => _search = f['name']!);
+        break;
+      case 'complete_task':
+        final title = (f['title'] ?? '').toLowerCase();
+        final found = _tasks
+            .where(
+              (task) =>
+                  !task.done &&
+                  (title.isEmpty || task.title.toLowerCase().contains(title)),
+            )
+            .toList();
+        if (found.isNotEmpty) setState(() => found.first.done = true);
+        _go('Tasks');
+        break;
+      default:
+        break;
+    }
+  }
+
+  Future<void> _askCopilot(String question) async {
+    if (_assistantBusy || question.trim().isEmpty) return;
+    if (_voiceSession) {
+      await _speech.stop();
+      _listening = false;
+    }
+    _chat.add(_ChatLine(true, question));
+    setState(() => _assistantBusy = true);
+    _refreshAssistantPopup();
+    final result = await _askModel(question);
+    String answer;
+    if (result != null) {
+      _applyAssistantAction(result);
+      answer = result.reply;
+    } else {
+      await _handleVoiceCommand(
+        question,
+        consultAi: false,
+        resumeVoice: false,
+        speakResponse: false,
+      );
+      final transcript = _transcript.split('\n');
+      answer =
+          'AI is temporarily unavailable. I used the built-in command helper instead. ${transcript.length > 1 ? transcript.skip(1).join(' ') : _answerLocally(question)}';
+    }
+    _chat.add(_ChatLine(false, answer));
+    if (mounted) setState(() => _assistantBusy = false);
+    _refreshAssistantPopup();
+    await _speak(answer);
+  }
+
+  Future<void> _toggleVoice({bool greet = false}) async {
+    if (_voiceSession || _listening) {
+      _voiceSession = false;
+      _processing = false;
+      _listenRestartTimer?.cancel();
+      await _speech.stop();
+      _stopSpeaking();
+      if (mounted)
+        setState(() {
+          _listening = false;
+          _transcript = 'Voice session ended.';
+        });
+      _refreshAssistantPopup();
+      return;
+    }
+    _preferOnDeviceSpeech = true;
+    _listenFailures = 0;
+    _speechReady = await _speech.initialize(
+      onError: (error) {
+        if (!mounted) return;
+        final message = error.errorMsg.toLowerCase();
+        final permissionDenied =
+            message.contains('permission') ||
+            message.contains('denied') ||
+            message.contains('not-allowed');
+        if (!permissionDenied && _preferOnDeviceSpeech) {
+          _preferOnDeviceSpeech = false;
+          _listenFailures = 0;
+          _assistantError = 'No offline speech pack was found for this language. Trying the device speech service.';
+          _refreshAssistantPopup();
+          _scheduleListenRestart();
+          return;
+        }
+        _listenFailures++;
+        final stoppedAfterRetries = _listenFailures >= 3;
+        setState(() {
+          _listening = false;
+          if (permissionDenied || stoppedAfterRetries) _voiceSession = false;
+          _assistantError = permissionDenied
+              ? 'Microphone access is blocked. Allow microphone access in your browser or device settings.'
+              : stoppedAfterRetries
+              ? 'Speech recognition could not start. Check the microphone and the device speech service.'
+              : 'Speech recognition stopped; Liyabona is trying to restart it.';
+          _transcript = permissionDenied
+              ? 'Microphone access is blocked. Allow microphone access in your browser or device settings.'
+              : 'Speech recognition stopped. Retrying…';
+        });
+        _refreshAssistantPopup();
+        if (!permissionDenied && !stoppedAfterRetries) _scheduleListenRestart();
+      },
+      onStatus: (status) {
+        if (!mounted) return;
+        if (status == 'listening') {
+          _listenFailures = 0;
+          _listenRestartTimer?.cancel();
+          setState(() => _listening = true);
+          _refreshAssistantPopup();
+        } else if (status == 'done' || status == 'notListening') {
+          setState(() => _listening = false);
+          _refreshAssistantPopup();
+          _scheduleListenRestart();
+        }
+      },
+    );
+    if (!_speechReady) {
+      _assistantError = 'Speech recognition is unavailable. Check microphone permission and the device speech service.';
+      if (greet) await _speak('Hello, how can I help you today?');
+      _refreshAssistantPopup();
+      return;
+    }
+    _assistantError = '';
+    try {
+      final supported = await _speech.locales();
+      final ids = supported.map((locale) => locale.localeId).toSet();
+      _speechLocale = const [
+        'en_ZA',
+        'en_GB',
+        'en_US',
+      ].firstWhere(ids.contains, orElse: () => '');
+      if (_speechLocale!.isEmpty) _speechLocale = null;
+    } catch (_) {
+      // Let the device choose its default locale if the list is unavailable.
+      _speechLocale = null;
+    }
+    setState(() {
+      _voiceSession = true;
+      _transcript = 'Listening';
+    });
+    _refreshAssistantPopup();
+    if (greet) {
+      // Start speech recognition inside the tap gesture. Some browsers reject
+      // microphone startup if it is delayed until after the spoken greeting.
+      _greetingPlaying = true;
+      await _listenOnce();
+      await _speak('Hello, how can I help you today?');
+      await Future<void>.delayed(const Duration(milliseconds: 2200));
+      _greetingPlaying = false;
+      if (_voiceSession && !_listening) await _listenOnce();
+      return;
+    }
+    await _listenOnce();
+  }
+
+  Future<void> _listenOnce() async {
+    if (!_voiceSession || !mounted || _processing || _listening) return;
+    _listenRestartTimer?.cancel();
+    setState(() => _listening = true);
+    _refreshAssistantPopup();
+    try {
+      await _speech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: _speechLocale,
+          listenFor: const Duration(minutes: 2),
+          pauseFor: const Duration(seconds: 3),
+          partialResults: true,
+          cancelOnError: false,
+          onDevice: _preferOnDeviceSpeech,
+        ),
+        onResult: (result) {
+          if (!mounted) return;
+          final heard = result.recognizedWords.trim();
+          if (heard.isEmpty) return;
+          _listenFailures = 0;
+          if (_greetingPlaying) return;
+          if (_ttsSpeaking && _isSpeechInterruption(heard)) {
+            _stopSpeaking();
+          } else if (_ttsSpeaking && _soundsLikeCurrentSpeech(heard)) {
+            return;
+          }
+          setState(() => _transcript = heard);
+          if (result.finalResult && !_processing) {
+            _processing = true;
+            if (_ttsSpeaking) _stopSpeaking();
+            _refreshAssistantPopup();
+            unawaited(_handleVoiceCommand(heard));
+          }
+        },
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _listening = false;
+        _transcript =
+            'Could not start speech recognition. Check microphone access.';
+        _listenFailures++;
+        if (_listenFailures >= 3) {
+          _voiceSession = false;
+          _assistantError = _transcript;
+        } else {
+          _assistantError =
+              'Speech recognition stopped; Liyabona is trying to restart it.';
+        }
+      });
+      _refreshAssistantPopup();
+      if (_voiceSession) _scheduleListenRestart();
+    }
+  }
+
+  void _scheduleListenRestart() {
+    _listenRestartTimer?.cancel();
+    if (!_voiceSession || _processing || _greetingPlaying || !mounted) return;
+    _listenRestartTimer = Timer(const Duration(milliseconds: 650), () {
+      if (_voiceSession && !_processing && !_listening && mounted) {
+        unawaited(_listenOnce());
+      }
+    });
+  }
+
+  bool _isSpeechInterruption(String phrase) {
+    final command = phrase.toLowerCase().replaceAll(RegExp(r'[^a-z ]'), ' ');
+    return RegExp(r'\b(stop|quiet|be quiet|cancel|hold on|wait)\b')
+        .hasMatch(command);
+  }
+
+  bool _soundsLikeCurrentSpeech(String phrase) {
+    String clean(String value) => value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9 ]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final heard = clean(phrase);
+    final spoken = clean(_lastSpeechText);
+    if (heard.length < 8 || spoken.isEmpty) return false;
+    if (spoken.contains(heard) || heard.contains(spoken)) return true;
+    final words = heard.split(' ').where((word) => word.length > 2).toSet();
+    if (words.isEmpty) return false;
+    final shared = words.where(spoken.split(' ').toSet().contains).length;
+    return shared / words.length > .72;
+  }
+
+  void _announce(String text) {
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  Future<void> _handleVoiceCommand(
+    String phrase, {
+    bool consultAi = true,
+    bool resumeVoice = true,
+    bool speakResponse = true,
+  }) async {
+    final command = phrase.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
+    final stopCommand =
+        command.contains('stop listening') ||
+        command.contains('stop voice') ||
+        command.contains('close voice session') ||
+        command.contains('close assistant');
+    final stopSpeechOnly = RegExp(
+      r'^(stop|stop speaking|stop talking|be quiet|quiet|cancel|hold on|wait)[.! ]*$',
+    ).hasMatch(command);
+    if (stopCommand || stopSpeechOnly) {
+      await _speech.stop();
+      _stopSpeaking();
+      if (stopCommand) _voiceSession = false;
+      _processing = false;
+      if (mounted) {
+        setState(() {
+          _listening = false;
+          _transcript = stopCommand ? 'Voice assistant stopped.' : 'Okay.';
+        });
+      }
+      _refreshAssistantPopup();
+      if (!stopCommand && resumeVoice && _voiceSession && mounted) {
+        await _listenOnce();
+      }
+      return;
+    }
+    _heardPhrase = phrase;
+    _interpretation = 'Checking your request with Liyabona AI';
+    _matchConfidence = null;
+    if (consultAi) {
+      await _speech.stop();
+      _listening = false;
+      final result = await _askModel(phrase);
+      if (result != null &&
+          result.action != 'answer' &&
+          result.action != 'clarify') {
+        _applyAssistantAction(result);
+        _chat.add(_ChatLine(true, phrase));
+        _chat.add(_ChatLine(false, result.reply));
+        _pendingChoices = [];
+        _interpretation = result.action == 'navigate'
+            ? 'Opening ${result.destination}'
+            : result.action == 'clarify'
+            ? 'AI needs one more detail'
+            : 'AI action: ${result.action.replaceAll('_', ' ')}';
+        _matchConfidence = null;
+        if (mounted) {
+          setState(() {
+            _transcript = '“$phrase”\n${result.reply}';
+            _listening = false;
+          });
+        }
+        _refreshAssistantPopup();
+        if (speakResponse) await _speak(result.reply);
+        _processing = false;
+        _refreshAssistantPopup();
+        if (resumeVoice && _voiceSession && mounted) {
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+          await _listenOnce();
+        }
+        return;
+      }
+      if (result != null) {
+        // The AI heard the request but could not turn it into an app action.
+        // Give the built-in command handler the same recognized words before
+        // falling back to the AI's spoken answer or clarification.
+        await _handleVoiceCommand(
+          phrase,
+          consultAi: false,
+          resumeVoice: false,
+          speakResponse: false,
+        );
+        final localTranscript = _transcript.split('\n');
+        final localReply = localTranscript.length > 1
+            ? localTranscript.skip(1).join(' ')
+            : '';
+        final localHandled =
+            localReply.isNotEmpty &&
+            !localReply.startsWith('I heard $phrase. Say help');
+        final answer = localHandled ? localReply : result.reply;
+        _chat.add(_ChatLine(true, phrase));
+        _chat.add(_ChatLine(false, answer));
+        _interpretation = localHandled
+            ? 'Completed using the built-in command helper'
+            : 'Liyabona AI answered your request';
+        if (mounted) {
+          setState(() {
+            _transcript = '“$phrase”\n$answer';
+            _listening = false;
+          });
+        }
+        _refreshAssistantPopup();
+        if (speakResponse) await _speak(answer);
+        _processing = false;
+        _refreshAssistantPopup();
+        if (resumeVoice && _voiceSession && mounted) {
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+          await _listenOnce();
+        }
+        return;
+      }
+    }
+    var response =
+        'I heard $phrase. Say help to hear some commands I understand.';
+    _heardPhrase = phrase;
+    _interpretation = 'Checking your request against this app';
+    _matchConfidence = null;
+    if (_pendingChoices.isNotEmpty) {
+      final selection = _choosePending(command);
+      if (selection == null) {
+        response =
+            'I am not sure which one you mean. Please say ${_pendingChoices.join(' or ')}.';
+        _interpretation = 'Need a clearer choice';
+        _matchConfidence = .35;
+      } else {
+        _go(selection);
+        _pendingChoices = [];
+        _interpretation = 'Opening $selection';
+        _matchConfidence = .99;
+        response = 'Okay, opening $selection. ${_summaryFor(selection)}';
+      }
+    } else if (command.contains('stop listening') ||
+        command.contains('stop voice') ||
+        command.contains('close voice session')) {
+      _voiceSession = false;
+      _listening = false;
+      response = 'Voice session ended.';
+    } else if (command.contains('help') ||
+        command.contains('what can you do')) {
+      response = 'You can say: open calendar, check call-backs, check in visitor Sam, check out Sam, add a desk task, read this screen, create a note, log a call, schedule an appointment, make a document, find a learner, or ask the copilot a question.';
+    } else if (command.contains('read this screen') ||
+        command.contains('summarise this screen') ||
+        command.contains('summarize this screen') ||
+        command == 'read screen') {
+      response = _pageSummary();
+    } else if (_isNavigationRequest(command)) {
+      final match = _interpretDestination(command);
+      if (match.choices.length > 1) {
+        _pendingChoices = match.choices;
+        _interpretation = 'Possible screens: ${match.choices.join(' or ')}';
+        _matchConfidence = match.confidence;
+        response =
+            'I heard “$phrase”. Did you mean ${match.choices[0]} or ${match.choices[1]}?';
+      } else if (match.choices.isNotEmpty) {
+        final destination = match.choices.first;
+        _go(destination);
+        _interpretation = 'Opening $destination';
+        _matchConfidence = match.confidence;
+        response =
+            'I understood that as $destination. ${_summaryFor(destination)}';
+      } else {
+        _interpretation = 'I could not match that to a screen';
+        _matchConfidence = .2;
+        response =
+            'I heard “$phrase”, but I could not match it to a screen. Say help to hear available screens.';
+      }
+    } else if (command.startsWith('check out ') ||
+        command.startsWith('sign out visitor')) {
+      final person = _stripIntent(command, [
+        'check out visitor',
+        'check out',
+        'sign out visitor',
+      ]);
+      final matches = _visitors
+          .where(
+            (v) =>
+                v.checkedOut == null &&
+                (person.isEmpty || v.name.toLowerCase().contains(person)),
+          )
+          .toList();
+      final visitor = matches.isEmpty ? null : matches.first;
+      if (visitor == null) {
+        response = 'I could not find a checked-in visitor with that name.';
+      } else {
+        visitor.checkedOut = DateTime.now();
+        _go('Visitors');
+        response = 'I checked out ${visitor.name}.';
+      }
+    } else if (command.contains('visitor') &&
+        (_hasCreateIntent(command) ||
+            command.contains('check in') ||
+            command.contains('sign in') ||
+            command.contains('register'))) {
+      final details = _stripIntent(command, [
+        'check in visitor',
+        'check in',
+        'sign in visitor',
+        'sign in',
+        'register visitor',
+        'add visitor',
+        'new visitor',
+      ]);
+      final name = details
+          .split(RegExp(r'\b(visiting|to see|about)\b'))
+          .first
+          .trim();
+      final host = _after(details, ['visiting ', 'to see ']);
+      final visitor = _Visitor(
+        name.isEmpty ? 'Walk-in visitor' : _titleCase(name),
+        host.isEmpty ? 'Student Support' : _titleCase(host),
+        'Campus visit',
+        DateTime.now(),
+      );
+      _visitors.insert(0, visitor);
+      _go('Visitors');
+      response =
+          'I checked in ${visitor.name}${host.isEmpty ? '' : ' to visit ${visitor.host}'}. Remember to check them out when they leave.';
+    } else if (command.contains('task') && _hasCreateIntent(command)) {
+      final detail = _stripIntent(command, [
+        'create a task',
+        'create task',
+        'add a task',
+        'add task',
+        'make a task',
+        'new task',
+        'remind me to',
+      ]);
+      final task = _ReceptionTask(
+        detail.isEmpty ? 'New reception task' : _titleCase(detail),
+        detail.isEmpty ? 'Details to be added.' : detail,
+        DateTime.now(),
+        false,
+      );
+      _tasks.insert(0, task);
+      _go('Tasks');
+      response = 'I added the task: ${task.title}.';
+    } else if (command.startsWith('complete task') ||
+        command.startsWith('finish task')) {
+      final title = _stripIntent(command, ['complete task', 'finish task']);
+      final matches = _tasks
+          .where(
+            (task) =>
+                !task.done &&
+                (title.isEmpty || task.title.toLowerCase().contains(title)),
+          )
+          .toList();
+      if (matches.isEmpty) {
+        response = 'I could not find an open task with that name.';
+      } else {
+        matches.first.done = true;
+        _go('Tasks');
+        response = 'I marked ${matches.first.title} as complete.';
+      }
+    } else if (command.contains('calendar') ||
+        command.contains('appointments') ||
+        command.contains('appointment') ||
+        command.contains('schedule')) {
+      _go('Calendar');
+      response = _calendarSummary();
+      if (_hasCreateIntent(command)) {
+        final person = _after(command, ['with ', 'for ']);
+        final name = person.isEmpty
+            ? 'Walk-in learner'
+            : _titleCase(
+                person.split(RegExp(r'\b(on|at|about)\b')).first.trim(),
+              );
+        final purpose = _after(command, ['about ', 'for ']);
+        {
+          final at = DateTime.now().add(const Duration(days: 1));
+          _appointments.insert(
+            0,
+            _Appointment(
+              purpose.isEmpty ? 'Reception follow-up' : _titleCase(purpose),
+              name,
+              DateTime(at.year, at.month, at.day, 10),
+              'Student Support office',
+              purpose.isEmpty ? 'Follow-up' : purpose,
+            ),
+          );
+          response =
+              'I scheduled ${purpose.isEmpty ? 'a follow-up' : purpose} with $name for tomorrow at ten in the morning. ' +
+              _calendarSummary();
+        }
+      }
+    } else if (command.contains('call-back') ||
+        command.contains('callback') ||
+        command.contains('call back')) {
+      _go('Call log');
+      final due = _calls.where((call) => call.callback).length;
+      response =
+          'There are $due call-backs waiting. ' +
+          _calls
+              .where((call) => call.callback)
+              .map((call) => '${call.caller}: ${call.reason}')
+              .join('. ');
+    } else if (command.contains('call') && _hasCreateIntent(command)) {
+      final details = _stripIntent(command, [
+        'log a call',
+        'record a call',
+        'make a call note',
+        'new call',
+      ]);
+      final callerMatch = RegExp(
+        r'^(?:from|caller)\s+(.+?)(?:\s+(?:about|saying|that)\s+(.+))?$',
+      ).firstMatch(details);
+      final caller = callerMatch == null
+          ? 'Voice caller'
+          : _titleCase(callerMatch.group(1)!.trim());
+      final reason = callerMatch?.group(2)?.trim() ?? details;
+      _calls.insert(
+        0,
+        _Call(
+          caller,
+          '',
+          reason.isEmpty ? 'Details captured by reception.' : reason,
+          true,
+          'Normal',
+          DateTime.now(),
+        ),
+      );
+      _go('Call log');
+      response =
+          'I logged the call from $caller and added it to the call-back list. ${_calls.first.reason}';
+    } else if ((command.contains('note') || command.contains('remind')) &&
+        _hasCreateIntent(command) &&
+        !command.startsWith('add to my note') &&
+        !command.startsWith('append to my note')) {
+      final content = _stripIntent(command, [
+        'create a note',
+        'make a note',
+        'take a note',
+        'new note',
+        'write a note',
+        'note that',
+        'remind me to',
+      ]);
+      final noteText = content.isEmpty
+          ? 'New voice note. Details to be added.'
+          : _cleanStart(content);
+      _notes.insert(0, _Note('Voice note', noteText, DateTime.now()));
+      _go('Notes');
+      response = content.isEmpty
+          ? 'I created a blank voice note. You can now say, add to my note, followed by the details.'
+          : 'I saved a voice note: $noteText';
+    } else if (command.startsWith('add to my note') ||
+        command.startsWith('append to my note')) {
+      final addition = _stripIntent(command, [
+        'add to my note',
+        'append to my note',
+      ]);
+      if (_notes.isEmpty) {
+        _notes.insert(0, _Note('Voice note', addition, DateTime.now()));
+      } else {
+        final previous = _notes.first;
+        _notes[0] = _Note(
+          previous.title,
+          '${previous.body} ${_cleanStart(addition)}',
+          previous.when,
+        );
+      }
+      _go('Notes');
+      response = 'I added that to your latest note.';
+    } else if ((command.contains('document') ||
+            command.contains('letter') ||
+            command.contains('pdf')) &&
+        _hasCreateIntent(command)) {
+      final topic = _stripIntent(command, [
+        'create a document',
+        'make a document',
+        'draft a letter',
+        'generate a document',
+        'create a pdf',
+      ]);
+      final title = topic.isEmpty
+          ? 'Reception document'
+          : 'Document about ${_titleCase(topic)}';
+      _documents.insert(
+        0,
+        _Document(
+          title,
+          'Draft created in the demo workspace.',
+          DateTime.now(),
+        ),
+      );
+      _go('Documents');
+      response =
+          'I created a draft called $title. Open Documents to review and print it.';
+    } else if (command.contains('email') && _hasCreateIntent(command)) {
+      final rawRecipient = _after(command, [
+        'email to ',
+        'message to ',
+        ' to ',
+      ]);
+      final recipient = rawRecipient
+          .split(RegExp(r'\b(about|regarding|with subject)\b'))
+          .first
+          .trim();
+      final topic = _after(command, ['about ', 'regarding ', 'with subject ']);
+      final subject = topic.isEmpty
+          ? 'Student Support follow-up'
+          : _titleCase(topic);
+      final salutation = recipient.isEmpty ? 'there' : _titleCase(recipient);
+      final body =
+          'Dear $salutation,\n\nI am writing regarding ${topic.isEmpty ? 'your recent enquiry' : topic}. Please let me know if you need any further assistance.\n\nKind regards,\nStudent Support Reception';
+      _emails.insert(
+        0,
+        _EmailDraft(
+          recipient.isEmpty ? 'Recipient to be confirmed' : recipient,
+          subject,
+          body,
+          DateTime.now(),
+        ),
+      );
+      _go('Emails');
+      response =
+          'I drafted an email to ${recipient.isEmpty ? 'review' : recipient} with the subject $subject. It has not been sent.';
+    } else if (command.contains('learner') ||
+        command.contains('student') ||
+        command.contains('directory')) {
+      _go('Learners');
+      final person = _after(command, ['find ', 'search for ', 'look up ']);
+      if (person.isNotEmpty) _search = person;
+      response = 'I opened the learner directory. It contains fictional sample records for this demo.';
+    } else if (command.contains('enquir') ||
+        command.contains('request') ||
+        command.contains('case')) {
+      _go('Enquiries');
+      if (_hasCreateIntent(command)) {
+        final detail = _stripIntent(command, [
+          'create an enquiry',
+          'new enquiry',
+          'log an enquiry',
+          'record an enquiry',
+        ]);
+        _enquiries.insert(
+          0,
+          _Enquiry(
+            'Walk-in learner',
+            'General enquiry',
+            detail.isEmpty ? 'Details to be added.' : detail,
+            'New',
+            'Normal',
+          ),
+        );
+        response = 'I recorded a new student enquiry.';
+      } else {
+        response =
+            'There are ${_enquiries.length} sample enquiries: ${_enquiries.map((item) => '${item.name}, ${item.category}, ${item.status}').join('. ')}';
+      }
+    } else if (command.contains('copilot') ||
+        command.startsWith('ask ai') ||
+        command.startsWith('ask the ai')) {
+      final question = _stripIntent(command, [
+        'ask the copilot',
+        'ask copilot',
+        'ask the ai',
+        'ask ai',
+      ]);
+      _go('AI copilot');
+      response = _answerLocally(question.isEmpty ? phrase : question);
+      _chat.add(_ChatLine(true, question.isEmpty ? phrase : question));
+      _chat.add(_ChatLine(false, response));
+      _chatCount++;
+    } else if (command.contains('home') || command.contains('dashboard')) {
+      _go('Home');
+      response = 'You are on the overview. ' + _homeSummary();
+    } else if (command.contains('open documents') ||
+        command.contains('show documents')) {
+      _go('Documents');
+      response = 'You have ${_documents.length} draft documents.';
+    } else if (command.contains('open notes') ||
+        command.contains('show notes')) {
+      _go('Notes');
+      response =
+          'You have ${_notes.length} saved demo notes. ' +
+          (_notes.isEmpty ? '' : _notes.first.title + ': ' + _notes.first.body);
+    }
+    if (mounted)
+      setState(() {
+        _transcript = '“$phrase”\n$response';
+        _listening = false;
+      });
+    if (consultAi && !stopCommand) {
+      _chat.add(_ChatLine(true, phrase));
+      _chat.add(_ChatLine(false, response));
+    }
+    _refreshAssistantPopup();
+    if (speakResponse) {
+      await _speech.stop();
+      await _speak(response);
+    }
+    _processing = false;
+    _refreshAssistantPopup();
+    if (resumeVoice && _voiceSession && mounted) {
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await _listenOnce();
+    }
+  }
+
+  bool _isNavigationRequest(String command) =>
+      !command.startsWith('check in ') &&
+      !command.startsWith('check out ') &&
+      RegExp(r'^(open|show|go to|take me to|navigate to|check)\b')
+          .hasMatch(command);
+
+  _DestinationMatch _interpretDestination(String command) {
+    final request = command.replaceFirst(
+      RegExp(r'^(open|show|go to|take me to|navigate to|check)\s+(the\s+)?'),
+      '',
+    );
+    if (request.contains('call of duty') || request == 'call') {
+      return const _DestinationMatch(['Calendar', 'Call log'], .52);
+    }
+    const aliases = <String, List<String>>{
+      'Home': ['home', 'dashboard', 'overview'],
+      'Calendar': [
+        'calendar',
+        'calender',
+        'calandar',
+        'agenda',
+        'schedule',
+        'appointments',
+        'meetings',
+      ],
+      'Call log': [
+        'call log',
+        'phone log',
+        'call backs',
+        'callbacks',
+        'call back list',
+        'call-back',
+        'call back',
+        'calls',
+      ],
+      'Enquiries': ['enquiries', 'enquiry', 'requests', 'cases'],
+      'Notes': ['notes', 'notepad', 'voice notes'],
+      'Documents': ['documents', 'document drafts', 'pdfs', 'letters'],
+      'Emails': ['emails', 'email drafts', 'draft emails', 'messages'],
+      'Learners': ['learners', 'students', 'directory', 'student list'],
+      'Knowledge': ['knowledge', 'campus information', 'help articles'],
+      'AI copilot': ['ai', 'copilot', 'assistant', 'ai helper'],
+      'Visitors': [
+        'visitor',
+        'visitors',
+        'visitor log',
+        'check-in',
+        'check in list',
+      ],
+      'Tasks': ['tasks', 'task list', 'to do', 'todo', 'reminders'],
+    };
+    for (final entry in aliases.entries) {
+      if (entry.value.any(
+        (alias) => request == alias || request.contains(alias),
+      )) {
+        return _DestinationMatch([
+          entry.key,
+        ], request == entry.value.first ? .98 : .88);
+      }
+    }
+    return const _DestinationMatch([], .2);
+  }
+
+  String? _choosePending(String command) {
+    for (final page in _pendingChoices) {
+      if (command.contains(page.toLowerCase()) ||
+          (page == 'Calendar' &&
+              (command.contains('first') || command == 'one')) ||
+          (page == 'Call log' &&
+              (command.contains('second') || command == 'two'))) {
+        return page;
+      }
+    }
+    return null;
+  }
+
+  String _summaryFor(String page) => switch (page) {
+    'Calendar' => _calendarSummary(),
+    'Call log' =>
+      '${_calls.where((item) => item.callback).length} call-backs are waiting.',
+    'Home' => _homeSummary(),
+    'Notes' => '${_notes.length} saved notes.',
+    'Documents' => '${_documents.length} draft documents.',
+    'Emails' => '${_emails.length} email drafts. None have been sent.',
+    'Enquiries' => '${_enquiries.length} student enquiries.',
+    'Learners' => 'The learner directory is open.',
+    'Knowledge' => 'Campus information is open.',
+    'AI copilot' => 'The reception copilot is ready.',
+    'Visitors' =>
+      '${_visitors.where((v) => v.checkedOut == null).length} visitors are currently checked in.',
+    'Tasks' =>
+      '${_tasks.where((task) => !task.done).length} reception tasks are still open.',
+    _ => _pageSummary(),
+  };
+
+  void _selectVoiceChoice(String choice) {
+    if (!kIsWeb) {
+      unawaited(_speech.stop());
+    }
+    _processing = true;
+    unawaited(_handleVoiceCommand(choice));
+  }
+
+  bool _hasCreateIntent(String command) => [
+    'add ',
+    'new ',
+    'create ',
+    'make ',
+    'take ',
+    'log ',
+    'record ',
+    'book ',
+    'schedule ',
+    'draft ',
+    'generate ',
+    'write ',
+    'compose ',
+    'remind ',
+  ].any(command.startsWith);
+  String _after(String text, List<String> prefixes) {
+    for (final prefix in prefixes) {
+      final i = text.indexOf(prefix);
+      if (i >= 0) return text.substring(i + prefix.length).trim();
+    }
+    return '';
+  }
+
+  String _stripIntent(String text, List<String> phrases) {
+    var out = text;
+    for (final phrase in phrases) {
+      out = out.replaceFirst(phrase, '');
+    }
+    return out
+        .replaceFirst(RegExp(r'^(about|that|saying|for|to)\s+'), '')
+        .trim();
+  }
+
+  String _cleanStart(String value) =>
+      value.replaceFirst(RegExp(r'^(that|saying|about|to)\s+'), '').trim();
+  String _titleCase(String value) => value
+      .split(' ')
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+  void _go(String page) {
+    if (mounted)
+      setState(() {
+        _page = page;
+        _search = '';
+      });
+  }
+
+  String _homeSummary() =>
+      'Today has ${_appointments.where((a) => _sameDay(a.when, DateTime.now())).length} appointments, ${_calls.where((c) => c.callback).length} call-backs, and ${_enquiries.where((e) => e.status != 'Resolved').length} open enquiries.';
+  String _calendarSummary() {
+    final today =
+        _appointments
+            .where((item) => _sameDay(item.when, DateTime.now()))
+            .toList()
+          ..sort((a, b) => a.when.compareTo(b.when));
+    if (today.isEmpty) return 'There are no appointments scheduled for today.';
+    return 'Today has ${today.length} appointments. ' +
+        today
+            .map(
+              (item) =>
+                  '${_time(item.when)}: ${item.title} with ${item.name}, ${item.location}',
+            )
+            .join('. ');
+  }
+
+  String _pageSummary() => switch (_page) {
+    'Home' =>
+      'Overview. ${_homeSummary()} Upcoming: ${_appointments.take(3).map((a) => '${_time(a.when)} ${a.title} with ${a.name}').join('. ')}',
+    'Calendar' => _calendarSummary(),
+    'Call log' =>
+      'Call log has ${_calls.length} calls. ${_calls.where((c) => c.callback).length} need call-back. ' +
+          _calls.take(4).map((c) => '${c.caller}: ${c.reason}').join('. '),
+    'Enquiries' =>
+      'There are ${_enquiries.length} enquiries. ' +
+          _enquiries
+              .map(
+                (e) =>
+                    '${e.name}, ${e.category}, ${e.status}, priority ${e.priority}',
+              )
+              .join('. '),
+    'Notes' =>
+      'There are ${_notes.length} notes. ' +
+          _notes.take(3).map((n) => '${n.title}: ${n.body}').join('. '),
+    'Documents' =>
+      'There are ${_documents.length} documents. ' +
+          _documents.map((d) => d.title).join('. '),
+    'Emails' =>
+      'There are ${_emails.length} saved email drafts. ' +
+          _emails
+              .take(3)
+              .map((e) => '${e.subject}, to ${e.recipient}')
+              .join('. '),
+    'Learners' => 'Learner directory. Sample learners include Lerato Mokoena, Thabo Khumalo, Amina Dlamini and Sibusiso Ndlovu.',
+    'Knowledge' => 'Knowledge base. Reception hours are Monday to Friday, eight in the morning to four in the afternoon. The Student Support office is in the main block, next to the library.',
+    'AI copilot' => 'Liyabona AI is ready for reception questions and app actions. Use the message box to type or the microphone control to speak.',
+    'Visitors' =>
+      'Visitor register. ${_visitors.where((v) => v.checkedOut == null).length} visitors are currently checked in. ${_visitors.take(4).map((v) => '${v.name}, visiting ${v.host}').join('. ')}',
+    'Tasks' =>
+      'Task list. ${_tasks.where((task) => !task.done).length} tasks are open. ${_tasks.where((task) => !task.done).take(4).map((task) => task.title).join('. ')}',
+    _ => 'More tools for the reception desk.',
+  };
+
+  String _answerLocally(String question) {
+    final q = question.toLowerCase();
+    if (q.contains('today') ||
+        q.contains('calendar') ||
+        q.contains('appointment'))
+      return _calendarSummary();
+    if (q.contains('call'))
+      return 'There are ${_calls.where((c) => c.callback).length} call-backs pending. ' +
+          _calls
+              .where((c) => c.callback)
+              .map((c) => '${c.caller}: ${c.reason}')
+              .join('. ');
+    if (q.contains('office') || q.contains('hour') || q.contains('where'))
+      return 'The Student Support office is in the main block, next to the library. Reception hours are Monday to Friday, eight in the morning to four in the afternoon.';
+    if (q.contains('enquir') || q.contains('request'))
+      return 'There are ${_enquiries.length} sample enquiries. ' +
+          _enquiries
+              .map((e) => '${e.name}: ${e.category}, ${e.status}')
+              .join('. ');
+    if (q.contains('visitor'))
+      return 'There are ${_visitors.where((v) => v.checkedOut == null).length} visitors currently checked in. ' +
+          _visitors
+              .where((v) => v.checkedOut == null)
+              .map((v) => '${v.name}, visiting ${v.host}')
+              .join('. ');
+    if (q.contains('task') || q.contains('reminder'))
+      return 'There are ${_tasks.where((task) => !task.done).length} open desk tasks. ' +
+          _tasks
+              .where((task) => !task.done)
+              .map((task) => task.title)
+              .join('. ');
+    if (q.contains('note') || q.contains('draft'))
+      return 'I can create a local demo note. Say “create a note” followed by the details, and I will save it in this session.';
+    return 'I can help with the calendar, call-backs, visitors, desk tasks, learner enquiries, notes, email drafts, documents and campus information. The AI service is offline, so this response uses the built-in demo helper.';
+  }
+
+  Future<void> _createRecord(String kind, {String initial = ''}) async {
+    final result = await showDialog<_RecordData>(
+      context: context,
+      builder: (_) => _RecordDialog(kind: kind, initial: initial),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      switch (kind) {
+        case 'Note':
+          _notes.insert(0, _Note(result.title, result.detail, DateTime.now()));
+          break;
+        case 'Call':
+          _calls.insert(
+            0,
+            _Call(
+              result.name,
+              result.phone,
+              result.detail,
+              result.callback,
+              result.priority,
+              DateTime.now(),
+            ),
+          );
+          break;
+        case 'Appointment':
+          _appointments.insert(
+            0,
+            _Appointment(
+              result.title,
+              result.name,
+              result.when,
+              result.location,
+              result.detail,
+            ),
+          );
+          break;
+        case 'Enquiry':
+          _enquiries.insert(
+            0,
+            _Enquiry(
+              result.name,
+              result.category,
+              result.detail,
+              'New',
+              result.priority,
+            ),
+          );
+          break;
+        case 'Document':
+          _documents.insert(
+            0,
+            _Document(result.title, result.detail, DateTime.now()),
+          );
+          break;
+        case 'Email':
+          _emails.insert(
+            0,
+            _EmailDraft(
+              result.name,
+              result.title,
+              result.detail,
+              DateTime.now(),
+            ),
+          );
+          break;
+        case 'Visitor':
+          _visitors.insert(
+            0,
+            _Visitor(result.name, result.title, result.detail, DateTime.now()),
+          );
+          break;
+        case 'Task':
+          _tasks.insert(
+            0,
+            _ReceptionTask(result.title, result.detail, DateTime.now(), false),
+          );
+          break;
+      }
+    });
+    _announce('$kind saved in this demo session.');
+    await _speak('$kind saved.');
+  }
+
+  Widget _pageContent() => switch (_page) {
+    'Home' => _HomePage(
+      appointments: _appointments,
+      calls: _calls,
+      enquiries: _enquiries,
+      notes: _notes,
+      visitorCount: _visitors.where((v) => v.checkedOut == null).length,
+      openTaskCount: _tasks.where((task) => !task.done).length,
+      onNavigate: _go,
+      onCreate: _createRecord,
+      onAsk: (q) => unawaited(_askCopilot(q)),
+    ),
+    'Calendar' => _CalendarPage(
+      appointments: _appointments,
+      onCreate: () => _createRecord('Appointment'),
+      onRead: () => _speak(_calendarSummary()),
+    ),
+    'Call log' => _CallPage(
+      calls: _calls,
+      onCreate: () => _createRecord('Call'),
+      onRead: () => _speak(_pageSummary()),
+    ),
+    'Enquiries' => _EnquiryPage(
+      enquiries: _enquiries,
+      onCreate: () => _createRecord('Enquiry'),
+    ),
+    'Notes' => _NotesPage(
+      notes: _notes,
+      onCreate: () => _createRecord('Note'),
+      onRead: () => _speak(_pageSummary()),
+    ),
+    'Documents' => _DocumentsPage(
+      documents: _documents,
+      onCreate: () => _createRecord('Document'),
+    ),
+    'Emails' => _EmailsPage(
+      drafts: _emails,
+      onCreate: () => _createRecord('Email'),
+      onRead: () => _speak(_pageSummary()),
+    ),
+    'Learners' => _LearnersPage(search: _search, onSpeak: (s) => _speak(s)),
+    'Knowledge' => const _KnowledgePage(),
+    'AI copilot' => _CopilotPage(
+      chat: _chat,
+      onAsk: _askCopilot,
+      busy: _assistantBusy,
+      error: _assistantError,
+      listening: _voiceSession,
+      onVoice: _toggleVoice,
+      onSpeak: (text) => _speak(text, toggle: true),
+    ),
+    'Visitors' => _VisitorsPage(
+      visitors: _visitors,
+      onCreate: () => _createRecord('Visitor'),
+      onCheckout: (visitor) =>
+          setState(() => visitor.checkedOut = DateTime.now()),
+      onRead: () => _speak(_pageSummary()),
+    ),
+    'Tasks' => _TasksPage(
+      tasks: _tasks,
+      onCreate: () => _createRecord('Task'),
+      onToggle: (task) => setState(() => task.done = !task.done),
+      onRead: () => _speak(_pageSummary()),
+    ),
+    _ => _MorePage(onNavigate: _go, onSpeak: () => _speak(_pageSummary())),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = _largeText ? 1.13 : 1.0;
+    final background = _highContrast ? Colors.white : paper;
+    return MaterialApp(
+      navigatorKey: _navigatorKey,
+      debugShowCheckedModeBanner: false,
+      title: 'Campus Reception',
+      theme: _makeTheme(_highContrast),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(scale)),
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 960;
+          if (!wide) return _mobileShell(background);
+          return Scaffold(
+            backgroundColor: background,
+            body: Row(
+              children: [
+                _Sidebar(
+                  selected: _page,
+                  items: _nav,
+                  onSelect: _go,
+                  onAssistant: _openAssistantPopup,
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _DesktopTopbar(
+                        highContrast: _highContrast,
+                        largeText: _largeText,
+                        onContrast: () =>
+                            setState(() => _highContrast = !_highContrast),
+                        onText: () => setState(() => _largeText = !_largeText),
+                        onRead: () => _speak(_pageSummary()),
+                      ),
+                      if (_voiceSession)
+                        _VoiceBanner(
+                          listening: _listening,
+                          processing: _processing,
+                          transcript: _transcript,
+                          heard: _heardPhrase,
+                          interpretation: _interpretation,
+                          confidence: _matchConfidence,
+                          choices: _pendingChoices,
+                          onChoose: _selectVoiceChoice,
+                          onStop: _toggleVoice,
+                        ),
+                      Expanded(child: _pageContent()),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            floatingActionButton: _actionButtons(),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _mobileShell(Color background) {
+    const destinations = ['Home', 'Calendar', 'Call log', 'More'];
+    final index = destinations.indexOf(_page);
+    return Scaffold(
+      backgroundColor: background,
+      appBar: AppBar(
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            const _BrandIcon(size: 34),
+            const SizedBox(width: 9),
+            Text(
+              _page,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Read this screen aloud',
+            onPressed: () => _speak(_pageSummary()),
+            icon: const Icon(Icons.volume_up_outlined),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Accessibility settings',
+            icon: const Icon(Icons.accessibility_new_rounded),
+            onSelected: (v) => setState(() {
+              if (v == 'text') _largeText = !_largeText;
+              if (v == 'contrast') _highContrast = !_highContrast;
+            }),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'text',
+                child: Text(_largeText ? 'Standard text size' : 'Larger text'),
+              ),
+              PopupMenuItem(
+                value: 'contrast',
+                child: Text(
+                  _highContrast ? 'Standard contrast' : 'High contrast',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (_voiceSession)
+            _VoiceBanner(
+              listening: _listening,
+              processing: _processing,
+              transcript: _transcript,
+              heard: _heardPhrase,
+              interpretation: _interpretation,
+              confidence: _matchConfidence,
+              choices: _pendingChoices,
+              onChoose: _selectVoiceChoice,
+              onStop: _toggleVoice,
+            ),
+          Expanded(child: _pageContent()),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: index < 0 ? 3 : index,
+        onDestinationSelected: (i) => _go(destinations[i]),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.grid_view_outlined),
+            selectedIcon: Icon(Icons.grid_view_rounded),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month_rounded),
+            label: 'Calendar',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.call_outlined),
+            selectedIcon: Icon(Icons.call_rounded),
+            label: 'Calls',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.apps_outlined),
+            selectedIcon: Icon(Icons.apps_rounded),
+            label: 'More',
+          ),
+        ],
+      ),
+      floatingActionButton: _actionButtons(),
+    );
+  }
+
+  Widget _actionButtons() => FloatingActionButton(
+    heroTag: 'liyabona-ai-button',
+    tooltip: _voiceSession
+        ? 'Stop Liyabona AI listening'
+        : 'Start Liyabona AI voice assistant',
+    onPressed: _handleAssistantButton,
+    backgroundColor: forest,
+    foregroundColor: Colors.white,
+    child: _AnimatedAssistantCharacter(
+      active: _voiceSession || _assistantBusy || _ttsSpeaking,
+      speaking: _ttsSpeaking,
+      listening: _listening,
+      size: 46,
+    ),
+  );
+
+  void _handleAssistantButton() {
+    if (_voiceSession) {
+      _closeAssistantPopup();
+      return;
+    }
+    _openAssistantPopup();
+    unawaited(_toggleVoice(greet: true));
+  }
+
+  void _closeAssistantPopup() {
+    _voiceSession = false;
+    _processing = false;
+    _listening = false;
+    unawaited(_speech.stop());
+    _stopSpeaking();
+    final navigator = _navigatorKey.currentState;
+    if (navigator?.canPop() ?? false) navigator!.pop();
+  }
+
+  void _openAssistantPopup() {
+    final navigatorContext = _navigatorKey.currentContext;
+    if (navigatorContext == null) return;
+    showGeneralDialog<void>(
+      context: navigatorContext,
+      barrierDismissible: false,
+      barrierLabel: 'Close Liyabona AI assistant',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (dialogContext, _, _) => StatefulBuilder(
+        builder: (context, setPopupState) {
+          _popupRebuild = setPopupState;
+          return _AssistantPopup(
+            busy: _assistantBusy || _processing,
+            listening: _voiceSession,
+            speaking: _ttsSpeaking,
+            error: _assistantError,
+            onStopSpeaking: _stopSpeaking,
+            onClose: _closeAssistantPopup,
+          );
+        },
+      ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutBack,
+        );
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: .88, end: 1).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    ).whenComplete(() => _popupRebuild = null);
+  }
+}
+
+ThemeData _makeTheme(bool contrast) {
+  final scheme = ColorScheme.fromSeed(
+    seedColor: contrast ? Colors.black : forest,
+    brightness: Brightness.light,
+    surface: Colors.white,
+  );
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: scheme,
+    scaffoldBackgroundColor: contrast ? Colors.white : paper,
+    fontFamily: 'Roboto',
+    textTheme: ThemeData.light().textTheme.apply(
+      bodyColor: ink,
+      displayColor: ink,
+    ),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Colors.white,
+      foregroundColor: ink,
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+    ),
+    cardTheme: CardThemeData(
+      color: Colors.white,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: line),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: const Color(0xFFF8FAF9),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: line),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: line),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: teal, width: 1.7),
+      ),
+      labelStyle: const TextStyle(color: Color(0xFF586860)),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: forest,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(48, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: forest,
+        minimumSize: const Size(48, 46),
+        side: const BorderSide(color: line),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: mint,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+      labelStyle: const TextStyle(color: forest, fontWeight: FontWeight.w600),
+    ),
+  );
+}
+
+class _Sidebar extends StatelessWidget {
+  const _Sidebar({
+    required this.selected,
+    required this.items,
+    required this.onSelect,
+    required this.onAssistant,
+  });
+  final String selected;
+  final List<_NavItem> items;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onAssistant;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 254,
+    color: Colors.white,
+    child: SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(23, 22, 18, 22),
+            child: Row(
+              children: [
+                const _BrandIcon(size: 42),
+                const SizedBox(width: 11),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Liyabona',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 17,
+                          color: ink,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'RECEPTION DESK',
+                        style: TextStyle(
+                          fontSize: 9,
+                          letterSpacing: 1.2,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF77847D),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(21, 4, 14, 8),
+            child: Text(
+              'WORKSPACE',
+              style: TextStyle(
+                fontSize: 10,
+                letterSpacing: 1.1,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF89958F),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                for (final item in items)
+                  _NavButton(
+                    item: item,
+                    selected: selected == item.label,
+                    onTap: () => onSelect(item.label),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F7F5),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: line),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.auto_awesome_rounded, color: forest),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Liyabona AI',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    'Ask it to navigate, write notes, set reminders and manage reception tasks.',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      height: 1.4,
+                      color: Color(0xFF63736B),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: onAssistant,
+                      icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                      label: const Text('Open AI assistant'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(21, 0, 16, 16),
+            child: Row(
+              children: [
+                Icon(Icons.shield_outlined, size: 15, color: Color(0xFF74847B)),
+                SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    'Demo mode · sample data only',
+                    style: TextStyle(fontSize: 10, color: Color(0xFF74847B)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _NavButton extends StatelessWidget {
+  const _NavButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+  final _NavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Semantics(
+      button: true,
+      selected: selected,
+      label: item.label,
+      child: Material(
+        color: selected ? mint : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Row(
+              children: [
+                Icon(
+                  item.icon,
+                  size: 19,
+                  color: selected ? forest : const Color(0xFF65736C),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  item.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    color: selected ? forest : const Color(0xFF46574F),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _DesktopTopbar extends StatelessWidget {
+  const _DesktopTopbar({
+    required this.highContrast,
+    required this.largeText,
+    required this.onContrast,
+    required this.onText,
+    required this.onRead,
+  });
+  final bool highContrast, largeText;
+  final VoidCallback onContrast, onText, onRead;
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 76,
+    padding: const EdgeInsets.symmetric(horizontal: 30),
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(bottom: BorderSide(color: line)),
+    ),
+    child: Row(
+      children: [
+        const Expanded(
+          child: Text(
+            'Student Support Services  /  Reception',
+            style: TextStyle(
+              color: Color(0xFF66756D),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const _DemoBadge(),
+        const SizedBox(width: 16),
+        IconButton(
+          tooltip: 'Read this screen aloud',
+          onPressed: onRead,
+          icon: const Icon(Icons.volume_up_outlined),
+        ),
+        IconButton(
+          tooltip: largeText ? 'Standard text' : 'Larger text',
+          onPressed: onText,
+          icon: const Icon(Icons.text_fields_rounded),
+        ),
+        IconButton(
+          tooltip: highContrast ? 'Standard contrast' : 'High contrast',
+          onPressed: onContrast,
+          icon: const Icon(Icons.contrast_rounded),
+        ),
+        const SizedBox(width: 8),
+        const CircleAvatar(
+          radius: 18,
+          backgroundColor: mint,
+          child: Text(
+            'NM',
+            style: TextStyle(
+              color: forest,
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DemoBadge extends StatelessWidget {
+  const _DemoBadge();
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: amber,
+      borderRadius: BorderRadius.circular(30),
+    ),
+    child: const Row(
+      children: [
+        Icon(Icons.science_outlined, size: 14, color: Color(0xFF916318)),
+        SizedBox(width: 5),
+        Text(
+          'DEMO',
+          style: TextStyle(
+            fontSize: 9,
+            letterSpacing: .8,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF805710),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _BrandIcon extends StatelessWidget {
+  const _BrandIcon({this.size = 40});
+  final double size;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: forest,
+      borderRadius: BorderRadius.circular(size * .31),
+    ),
+    child: Icon(
+      Icons.support_agent_rounded,
+      color: Colors.white,
+      size: size * .54,
+    ),
+  );
+}
+
+class _VoiceBanner extends StatelessWidget {
+  const _VoiceBanner({
+    required this.listening,
+    required this.processing,
+    required this.transcript,
+    required this.heard,
+    required this.interpretation,
+    required this.confidence,
+    required this.choices,
+    required this.onChoose,
+    required this.onStop,
+  });
+  final bool listening, processing;
+  final String transcript, heard, interpretation;
+  final double? confidence;
+  final List<String> choices;
+  final ValueChanged<String> onChoose;
+  final VoidCallback onStop;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+    decoration: const BoxDecoration(
+      color: Color(0xFFEAF4F1),
+      border: Border(bottom: BorderSide(color: Color(0xFFD3E7E1))),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              processing
+                  ? Icons.auto_awesome
+                  : listening
+                  ? Icons.graphic_eq_rounded
+                  : Icons.mic_none_rounded,
+              color: forest,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
+                  transcript.isEmpty
+                      ? (processing
+                            ? 'Working on your request…'
+                            : 'Voice session active. Say a command.')
+                      : transcript,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: ink),
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: onStop,
+              icon: const Icon(Icons.stop_rounded, size: 17),
+              label: const Text('Stop'),
+            ),
+          ],
+        ),
+        if (heard.isNotEmpty) ...[
+          const SizedBox(height: 7),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFD3E7E1)),
+            ),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 5,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Icon(Icons.auto_awesome, size: 16, color: teal),
+                const Text(
+                  'Liyabona AI command interpreter',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: forest,
+                  ),
+                ),
+                Text(
+                  interpretation,
+                  style: const TextStyle(fontSize: 12, color: ink),
+                ),
+                if (confidence != null)
+                  Text(
+                    '${(confidence! * 100).round()}% match',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: teal,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                for (final choice in choices)
+                  ActionChip(
+                    label: Text(choice),
+                    onPressed: () => onChoose(choice),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _HomePage extends StatelessWidget {
+  const _HomePage({
+    required this.appointments,
+    required this.calls,
+    required this.enquiries,
+    required this.notes,
+    required this.visitorCount,
+    required this.openTaskCount,
+    required this.onNavigate,
+    required this.onCreate,
+    required this.onAsk,
+  });
+  final List<_Appointment> appointments;
+  final List<_Call> calls;
+  final List<_Enquiry> enquiries;
+  final List<_Note> notes;
+  final int visitorCount, openTaskCount;
+  final ValueChanged<String> onNavigate;
+  final Future<void> Function(String, {String initial}) onCreate;
+  final ValueChanged<String> onAsk;
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = appointments.where((a) => _sameDay(a.when, now)).toList()
+      ..sort((a, b) => a.when.compareTo(b.when));
+    final callbacks = calls.where((c) => c.callback).toList();
+    final open = enquiries.where((e) => e.status != 'Resolved').length;
+    return _PageScroll(
+      children: [
+        _PageHeading(
+          eyebrow: _weekday(now),
+          title: 'Good morning, Neo',
+          subtitle: 'Here’s what is happening at the reception desk today.',
+          trailing: OutlinedButton.icon(
+            onPressed: () => onNavigate('Calendar'),
+            icon: const Icon(Icons.calendar_month_outlined),
+            label: const Text('View calendar'),
+          ),
+        ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final cols = constraints.maxWidth > 930
+                ? 3
+                : constraints.maxWidth > 580
+                ? 2
+                : 1;
+            return GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: cols,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: cols == 1 ? 3.6 : 1.65,
+              children: [
+                _MetricCard(
+                  label: 'Today’s appointments',
+                  value: '${today.length}',
+                  hint:
+                      'Next at ${today.isEmpty ? '—' : _time(today.first.when)}',
+                  icon: Icons.calendar_month_rounded,
+                  tone: mint,
+                  onTap: () => onNavigate('Calendar'),
+                ),
+                _MetricCard(
+                  label: 'Call-backs to make',
+                  value: '${callbacks.length}',
+                  hint: 'Two marked for follow-up',
+                  icon: Icons.call_missed_outgoing_rounded,
+                  tone: amber,
+                  onTap: () => onNavigate('Call log'),
+                ),
+                _MetricCard(
+                  label: 'Open enquiries',
+                  value: '$open',
+                  hint: 'Across learner support',
+                  icon: Icons.assignment_outlined,
+                  tone: const Color(0xFFEAF0FB),
+                  onTap: () => onNavigate('Enquiries'),
+                ),
+                _MetricCard(
+                  label: 'Notes saved today',
+                  value: '${notes.length}',
+                  hint: 'Private to this demo session',
+                  icon: Icons.sticky_note_2_outlined,
+                  tone: const Color(0xFFF1ECFA),
+                  onTap: () => onNavigate('Notes'),
+                ),
+                _MetricCard(
+                  label: 'Visitors on site',
+                  value: '$visitorCount',
+                  hint: 'Remember visitor sign-out',
+                  icon: Icons.badge_outlined,
+                  tone: const Color(0xFFE8F2F8),
+                  onTap: () => onNavigate('Visitors'),
+                ),
+                _MetricCard(
+                  label: 'Open desk tasks',
+                  value: '$openTaskCount',
+                  hint: 'Daily reminders and follow-ups',
+                  icon: Icons.task_alt_rounded,
+                  tone: const Color(0xFFF7EDE7),
+                  onTap: () => onNavigate('Tasks'),
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 22),
+        _SectionTitle(
+          title: 'Quick actions',
+          trailing: const Text(
+            'Choose a task',
+            style: TextStyle(color: Color(0xFF76827B), fontSize: 11),
+          ),
+        ),
+        const SizedBox(height: 11),
+        LayoutBuilder(
+          builder: (context, c) {
+            final cols = c.maxWidth > 760
+                ? 4
+                : c.maxWidth > 480
+                ? 2
+                : 1;
+            return GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: cols,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: cols == 1 ? 4 : 1.8,
+              children: [
+                _QuickAction(
+                  icon: Icons.call_rounded,
+                  title: 'Log a call',
+                  detail: 'Record a message',
+                  color: const Color(0xFFE5F0FB),
+                  onTap: () => onCreate('Call'),
+                ),
+                _QuickAction(
+                  icon: Icons.edit_note_rounded,
+                  title: 'New note',
+                  detail: 'Type or dictate',
+                  color: mint,
+                  onTap: () => onCreate('Note'),
+                ),
+                _QuickAction(
+                  icon: Icons.event_available_rounded,
+                  title: 'Book appointment',
+                  detail: 'Schedule a visit',
+                  color: amber,
+                  onTap: () => onCreate('Appointment'),
+                ),
+                _QuickAction(
+                  icon: Icons.auto_awesome_rounded,
+                  title: 'Draft a document',
+                  detail: 'Start with the copilot',
+                  color: const Color(0xFFF0EBFA),
+                  onTap: () => onCreate('Document'),
+                ),
+                _QuickAction(
+                  icon: Icons.person_add_alt_1_rounded,
+                  title: 'Check in visitor',
+                  detail: 'Record who is on campus',
+                  color: const Color(0xFFE8F2F8),
+                  onTap: () => onCreate('Visitor'),
+                ),
+                _QuickAction(
+                  icon: Icons.add_task_rounded,
+                  title: 'Add desk task',
+                  detail: 'Track a follow-up',
+                  color: const Color(0xFFF7EDE7),
+                  onTap: () => onCreate('Task'),
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 22),
+        LayoutBuilder(
+          builder: (context, c) {
+            final wide = c.maxWidth > 820;
+            final left = _PanelCard(
+              title: 'Coming up today',
+              trailing: TextButton(
+                onPressed: () => onNavigate('Calendar'),
+                child: const Text('Full calendar'),
+              ),
+              child: today.isEmpty
+                  ? const _EmptyInline('No appointments today.')
+                  : Column(
+                      children: [
+                        for (final a in today.take(3)) _AppointmentRow(item: a),
+                      ],
+                    ),
+            );
+            final right = _CallbackPanel(
+              calls: callbacks.take(2).toList(),
+              onAll: () => onNavigate('Call log'),
+            );
+            return wide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 6, child: left),
+                      const SizedBox(width: 14),
+                      Expanded(flex: 4, child: right),
+                    ],
+                  )
+                : Column(children: [left, const SizedBox(height: 12), right]);
+          },
+        ),
+        const SizedBox(height: 22),
+        _CopilotPromo(onAsk: onAsk, onOpen: () => onNavigate('AI copilot')),
+        const SizedBox(height: 18),
+        const _LocalNotice(),
+      ],
+    );
+  }
+}
+
+class _PageScroll extends StatelessWidget {
+  const _PageScroll({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 1260),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(28, 28, 28, 110),
+        children: children,
+      ),
+    ),
+  );
+}
+
+class _PageHeading extends StatelessWidget {
+  const _PageHeading({
+    required this.title,
+    required this.subtitle,
+    this.eyebrow,
+    this.trailing,
+  });
+  final String title, subtitle;
+  final String? eyebrow;
+  final Widget? trailing;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (eyebrow != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: Text(
+                    eyebrow!.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      letterSpacing: 1.25,
+                      fontWeight: FontWeight.w900,
+                      color: teal,
+                    ),
+                  ),
+                ),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w900, color: ink),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF68776E),
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (trailing != null) const SizedBox(width: 10),
+        if (trailing != null && MediaQuery.sizeOf(context).width > 580)
+          trailing!,
+      ],
+    ),
+  );
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title, this.trailing});
+  final String title;
+  final Widget? trailing;
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w900,
+            color: ink,
+          ),
+        ),
+      ),
+      if (trailing != null) trailing!,
+    ],
+  );
+}
+
+class _PanelCard extends StatelessWidget {
+  const _PanelCard({required this.title, required this.child, this.trailing});
+  final String title;
+  final Widget child;
+  final Widget? trailing;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(17, 15, 17, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: ink,
+                  ),
+                ),
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    ),
+  );
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.hint,
+    required this.icon,
+    required this.tone,
+    required this.onTap,
+  });
+  final String label, value, hint;
+  final IconData icon;
+  final Color tone;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: tone,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(icon, size: 18, color: forest),
+                ),
+                const Spacer(),
+                const Icon(
+                  Icons.arrow_outward_rounded,
+                  size: 15,
+                  color: Color(0xFF89958F),
+                ),
+              ],
+            ),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 25,
+                fontWeight: FontWeight.w900,
+                color: ink,
+              ),
+            ),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4D5C54),
+              ),
+            ),
+            Text(
+              hint,
+              style: const TextStyle(fontSize: 10, color: Color(0xFF87928B)),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.title,
+    required this.detail,
+    required this.color,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String title, detail;
+  final Color color;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 37,
+              height: 37,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 19, color: forest),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      color: ink,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    detail,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Color(0xFF78857E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 18, color: Color(0xFF85928A)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _AppointmentRow extends StatelessWidget {
+  const _AppointmentRow({required this.item});
+  final _Appointment item;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      children: [
+        Container(
+          width: 45,
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          decoration: BoxDecoration(
+            color: mint,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            _time(item.when),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: forest,
+            ),
+          ),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: ink,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '${item.name} · ${item.location}',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 10, color: Color(0xFF75827B)),
+              ),
+            ],
+          ),
+        ),
+        const Icon(Icons.chevron_right, size: 17, color: Color(0xFF8D9992)),
+      ],
+    ),
+  );
+}
+
+class _CallbackPanel extends StatelessWidget {
+  const _CallbackPanel({required this.calls, required this.onAll});
+  final List<_Call> calls;
+  final VoidCallback onAll;
+  @override
+  Widget build(BuildContext context) => _PanelCard(
+    title: 'Call-backs',
+    trailing: TextButton(onPressed: onAll, child: const Text('View all')),
+    child: calls.isEmpty
+        ? const _EmptyInline('No call-backs waiting.')
+        : Column(
+            children: [
+              for (final call in calls)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        radius: 16,
+                        backgroundColor: amber,
+                        child: Icon(
+                          Icons.call_missed_outgoing_rounded,
+                          size: 15,
+                          color: Color(0xFF926210),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              call.caller,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                                color: ink,
+                              ),
+                            ),
+                            Text(
+                              call.reason,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFF77847D),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right,
+                        size: 17,
+                        color: Color(0xFF8D9992),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+  );
+}
+
+class _CopilotPromo extends StatelessWidget {
+  const _CopilotPromo({required this.onAsk, required this.onOpen});
+  final ValueChanged<String> onAsk;
+  final VoidCallback onOpen;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(19),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [Color(0xFF174C42), Color(0xFF1D7163)],
+      ),
+      borderRadius: BorderRadius.circular(19),
+    ),
+    child: LayoutBuilder(
+      builder: (context, c) {
+        final compact = c.maxWidth < 640;
+        final text = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.auto_awesome,
+                  color: Color(0xFFB7E5D7),
+                  size: 17,
+                ),
+                const SizedBox(width: 7),
+                const Text(
+                  'RECEPTION COPILOT',
+                  style: TextStyle(
+                    fontSize: 9,
+                    letterSpacing: 1.2,
+                    color: Color(0xFFB7E5D7),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'DEMO AI',
+                    style: TextStyle(
+                      fontSize: 8,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'A calm second pair of hands.',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              'Ask for a summary, draft a note or get help with a reception process.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: .78),
+                fontSize: 11,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final query in [
+                  'Summarise today',
+                  'What needs follow-up?',
+                ])
+                  ActionChip(
+                    label: Text(query),
+                    backgroundColor: Colors.white,
+                    onPressed: () => onAsk(query),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: onOpen,
+              icon: const Icon(Icons.arrow_forward, size: 16),
+              label: const Text('Open AI copilot'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+            ),
+          ],
+        );
+        return compact
+            ? text
+            : Row(
+                children: [
+                  Expanded(child: text),
+                  const SizedBox(width: 28),
+                  Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome_rounded,
+                      color: Color(0xFFD1F4E9),
+                      size: 49,
+                    ),
+                  ),
+                ],
+              );
+      },
+    ),
+  );
+}
+
+class _LocalNotice extends StatelessWidget {
+  const _LocalNotice();
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFEFF3F1),
+      borderRadius: BorderRadius.circular(13),
+    ),
+    child: const Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.info_outline, size: 16, color: Color(0xFF66766D)),
+        SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'Demo only: records stay in memory. AI requests and the current screen summary are sent through Vercel AI Gateway to Google Gemini. Use fictional information; no college systems or persistent database are connected.',
+            style: TextStyle(
+              fontSize: 10,
+              height: 1.45,
+              color: Color(0xFF5F6E66),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _EmptyInline extends StatelessWidget {
+  const _EmptyInline(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 18),
+    child: Row(
+      children: [
+        const Icon(Icons.inbox_outlined, size: 18, color: Color(0xFF8A9790)),
+        const SizedBox(width: 8),
+        Text(
+          text,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF7A8780)),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CalendarPage extends StatelessWidget {
+  const _CalendarPage({
+    required this.appointments,
+    required this.onCreate,
+    required this.onRead,
+  });
+  final List<_Appointment> appointments;
+  final VoidCallback onCreate, onRead;
+  @override
+  Widget build(BuildContext context) {
+    final sorted = appointments.toList()
+      ..sort((a, b) => a.when.compareTo(b.when));
+    return _PageScroll(
+      children: [
+        _PageHeading(
+          title: 'Calendar',
+          subtitle: 'Appointments and planned student support meetings.',
+          trailing: FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.add),
+            label: const Text('New appointment'),
+          ),
+        ),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Upcoming appointments',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Read appointments aloud',
+              onPressed: onRead,
+              icon: const Icon(Icons.volume_up_outlined),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (sorted.isEmpty)
+          const _PanelCard(
+            title: 'Your calendar is clear',
+            child: _EmptyInline('Create an appointment to get started.'),
+          )
+        else
+          for (final a in sorted)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 9),
+              child: _AppointmentCard(item: a),
+            ),
+        const SizedBox(height: 8),
+        const _LocalNotice(),
+      ],
+    );
+  }
+}
+
+class _AppointmentCard extends StatelessWidget {
+  const _AppointmentCard({required this.item});
+  final _Appointment item;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(15),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 55,
+            height: 58,
+            decoration: BoxDecoration(
+              color: mint,
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${item.when.day}',
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    color: forest,
+                  ),
+                ),
+                Text(
+                  _month(item.when.month),
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: forest,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '${item.name} · ${item.category}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF6D7B73),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Row(
+                  children: [
+                    const Icon(Icons.schedule, size: 14, color: teal),
+                    const SizedBox(width: 5),
+                    Text(
+                      '${_weekday(item.when)} · ${_time(item.when)}  •  ${item.location}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF6D7B73),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Read appointment',
+            onPressed: () => FlutterTts().speak(
+              '${item.title}. ${item.name}. ${_weekday(item.when)} at ${_time(item.when)}. ${item.location}',
+            ),
+            icon: const Icon(Icons.volume_up_outlined, size: 19),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CallPage extends StatelessWidget {
+  const _CallPage({
+    required this.calls,
+    required this.onCreate,
+    required this.onRead,
+  });
+  final List<_Call> calls;
+  final VoidCallback onCreate, onRead;
+  @override
+  Widget build(BuildContext context) {
+    final callbacks = calls.where((c) => c.callback).length;
+    return _PageScroll(
+      children: [
+        _PageHeading(
+          title: 'Call log',
+          subtitle:
+              'Capture messages, priorities and the follow-up that comes next.',
+          trailing: FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.add_call),
+            label: const Text('Log a call'),
+          ),
+        ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _SmallCount(
+              label: 'Total calls',
+              value: '${calls.length}',
+              icon: Icons.call_rounded,
+            ),
+            _SmallCount(
+              label: 'Need call-back',
+              value: '$callbacks',
+              icon: Icons.call_missed_outgoing_rounded,
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Recent calls',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Read call log aloud',
+              onPressed: onRead,
+              icon: const Icon(Icons.volume_up_outlined),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+        for (final c in calls)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 9),
+            child: _CallCard(item: c),
+          ),
+        const _LocalNotice(),
+      ],
+    );
+  }
+}
+
+class _CallCard extends StatelessWidget {
+  const _CallCard({required this.item});
+  final _Call item;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(15),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            backgroundColor: item.callback ? amber : mint,
+            child: Icon(
+              Icons.call_received_rounded,
+              color: item.callback ? const Color(0xFF94651B) : forest,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.caller,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: ink,
+                        ),
+                      ),
+                    ),
+                    _StatusPill(
+                      text: item.callback ? 'Call-back' : 'Logged',
+                      warm: item.callback,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${item.phone.isEmpty ? 'No number' : item.phone} · ${_time(item.when)}',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF7B8881),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  item.reason,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: Color(0xFF43544B),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                _StatusPill(
+                  text: '${item.priority} priority',
+                  warm: item.priority == 'High',
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Read call aloud',
+            onPressed: () => FlutterTts().speak(
+              '${item.caller}. ${item.reason}. ${item.callback ? 'Call-back requested.' : ''}',
+            ),
+            icon: const Icon(Icons.volume_up_outlined, size: 18),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _EnquiryPage extends StatelessWidget {
+  const _EnquiryPage({required this.enquiries, required this.onCreate});
+  final List<_Enquiry> enquiries;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) => _PageScroll(
+    children: [
+      _PageHeading(
+        title: 'Student enquiries',
+        subtitle: 'A clear queue for requests that need a helpful next step.',
+        trailing: FilledButton.icon(
+          onPressed: onCreate,
+          icon: const Icon(Icons.add),
+          label: const Text('New enquiry'),
+        ),
+      ),
+      Wrap(
+        spacing: 8,
+        children: [
+          _StatusPill(
+            text: '${enquiries.where((e) => e.status == 'New').length} new',
+          ),
+          _StatusPill(
+            text:
+                '${enquiries.where((e) => e.status == 'In progress').length} in progress',
+            warm: true,
+          ),
+          _StatusPill(
+            text:
+                '${enquiries.where((e) => e.status == 'Waiting').length} waiting',
+            warm: true,
+          ),
+        ],
+      ),
+      const SizedBox(height: 14),
+      for (final e in enquiries)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 9),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(15),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: mint,
+                    child: Text(
+                      e.name.isEmpty ? '?' : e.name[0],
+                      style: const TextStyle(
+                        color: forest,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          e.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: ink,
+                          ),
+                        ),
+                        Text(
+                          e.category,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: teal,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          e.detail,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF6C7A72),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _StatusPill(text: e.status, warm: e.status == 'Waiting'),
+                      const SizedBox(height: 7),
+                      _StatusPill(
+                        text: '${e.priority} priority',
+                        warm: e.priority == 'High',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      const SizedBox(height: 9),
+      const _LocalNotice(),
+    ],
+  );
+}
+
+class _NotesPage extends StatelessWidget {
+  const _NotesPage({
+    required this.notes,
+    required this.onCreate,
+    required this.onRead,
+  });
+  final List<_Note> notes;
+  final VoidCallback onCreate, onRead;
+
+  @override
+  Widget build(BuildContext context) => _PageScroll(
+    children: [
+      _PageHeading(
+        title: 'Working notes',
+        subtitle: 'Capture handovers, reminders and the details that help the next person.',
+        trailing: FilledButton.icon(
+          onPressed: onCreate,
+          icon: const Icon(Icons.add),
+          label: const Text('New note'),
+        ),
+      ),
+      Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Saved in this demo session',
+              style: TextStyle(fontSize: 11, color: Color(0xFF728078)),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Read notes aloud',
+            onPressed: onRead,
+            icon: const Icon(Icons.volume_up_outlined),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      if (notes.isEmpty)
+        const _PanelCard(
+          title: 'No notes yet',
+          child: _EmptyInline(
+            'Use New note or dictate one with the voice assistant.',
+          ),
+        )
+      else
+        LayoutBuilder(
+          builder: (context, c) {
+            final cols = c.maxWidth > 750 ? 2 : 1;
+            return GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: cols,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: cols == 2 ? 2.1 : 3.1,
+              children: [
+                for (final n in notes)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.sticky_note_2_outlined,
+                                color: teal,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  n.title,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: ink,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Read note aloud',
+                                onPressed: () =>
+                                    FlutterTts().speak('${n.title}. ${n.body}'),
+                                icon: const Icon(
+                                  Icons.volume_up_outlined,
+                                  size: 18,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Expanded(
+                            child: Text(
+                              n.body,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                height: 1.45,
+                                color: Color(0xFF59675F),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${_weekday(n.when)} · ${_time(n.when)}',
+                            style: const TextStyle(
+                              fontSize: 9,
+                              color: Color(0xFF8A958F),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      const SizedBox(height: 12),
+      const _LocalNotice(),
+    ],
+  );
+}
+
+class _DocumentsPage extends StatelessWidget {
+  const _DocumentsPage({required this.documents, required this.onCreate});
+  final List<_Document> documents;
+  final VoidCallback onCreate;
+  @override
+  Widget build(BuildContext context) => _PageScroll(
+    children: [
+      _PageHeading(
+        title: 'Documents',
+        subtitle: 'Draft letters, confirmations and printable reception forms.',
+        trailing: FilledButton.icon(
+          onPressed: onCreate,
+          icon: const Icon(Icons.add),
+          label: const Text('Create document'),
+        ),
+      ),
+      const _PanelCard(
+        title: 'Quick templates',
+        child: Wrap(
+          spacing: 9,
+          runSpacing: 9,
+          children: [
+            _TemplateChip(
+              'Appointment confirmation',
+              Icons.event_available_outlined,
+            ),
+            _TemplateChip('Call-back slip', Icons.phone_callback_outlined),
+            _TemplateChip('Enquiry receipt', Icons.mark_email_read_outlined),
+            _TemplateChip('Daily handover', Icons.summarize_outlined),
+          ],
+        ),
+      ),
+      const SizedBox(height: 20),
+      const _SectionTitle(title: 'Recent drafts'),
+      const SizedBox(height: 9),
+      for (final d in documents)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 9),
+          child: Card(
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: mint,
+                child: Icon(Icons.description_outlined, color: forest),
+              ),
+              title: Text(
+                d.title,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: Text('${d.summary} · ${_time(d.when)}'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: Text(d.title),
+                  content: Text(d.summary),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      const SizedBox(height: 10),
+      const _LocalNotice(),
+    ],
+  );
+}
+
+class _EmailsPage extends StatelessWidget {
+  const _EmailsPage({
+    required this.drafts,
+    required this.onCreate,
+    required this.onRead,
+  });
+
+  final List<_EmailDraft> drafts;
+  final VoidCallback onCreate, onRead;
+
+  @override
+  Widget build(BuildContext context) => _PageScroll(
+    children: [
+      _PageHeading(
+        title: 'Email drafts',
+        subtitle: 'Review messages drafted by Liyabona before sending them yourself.',
+        trailing: FilledButton.icon(
+          onPressed: onCreate,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('New draft'),
+        ),
+      ),
+      Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Drafts stay in this demo session. Nothing is sent.',
+              style: TextStyle(fontSize: 11, color: Color(0xFF728078)),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Read email drafts aloud',
+            onPressed: onRead,
+            icon: const Icon(Icons.volume_up_outlined),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      if (drafts.isEmpty)
+        const _PanelCard(
+          title: 'No email drafts yet',
+          child: _EmptyInline(
+            'Ask Liyabona to draft an email, or create one here.',
+          ),
+        )
+      else
+        for (final draft in drafts)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 9),
+            child: Card(
+              child: ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: mint,
+                  child: Icon(Icons.mark_email_unread_outlined, color: forest),
+                ),
+                title: Text(
+                  draft.subject,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text(
+                  'To: ${draft.recipient} · Draft · ${_time(draft.when)}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text(draft.subject),
+                    content: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'To: ${draft.recipient}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 16),
+                          SelectableText(draft.body),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'This is a draft. It has not been sent.',
+                            style: TextStyle(fontSize: 11, color: forest),
+                          ),
+                        ],
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      const SizedBox(height: 10),
+      const _LocalNotice(),
+    ],
+  );
+}
+
+class _VisitorsPage extends StatelessWidget {
+  const _VisitorsPage({
+    required this.visitors,
+    required this.onCreate,
+    required this.onCheckout,
+    required this.onRead,
+  });
+  final List<_Visitor> visitors;
+  final VoidCallback onCreate, onRead;
+  final ValueChanged<_Visitor> onCheckout;
+
+  @override
+  Widget build(BuildContext context) {
+    final inside = visitors.where((v) => v.checkedOut == null).length;
+    return _PageScroll(
+      children: [
+        _PageHeading(
+          title: 'Visitor register',
+          subtitle: 'Keep a simple record of visitors currently on campus and who they came to see.',
+          trailing: FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.person_add_alt_1),
+            label: const Text('Check in visitor'),
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _SmallCount(
+                label: 'on campus',
+                value: '$inside',
+                icon: Icons.groups_outlined,
+              ),
+            ),
+            const SizedBox(width: 10),
+            IconButton(
+              tooltip: 'Read visitor register aloud',
+              onPressed: onRead,
+              icon: const Icon(Icons.volume_up_outlined),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (visitors.isEmpty)
+          const _PanelCard(
+            title: 'No visitor records',
+            child: _EmptyInline('Check in a visitor when they arrive.'),
+          )
+        else
+          for (final visitor in visitors)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 9),
+              child: Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: visitor.checkedOut == null ? mint : line,
+                    child: Icon(
+                      visitor.checkedOut == null
+                          ? Icons.person_pin_circle_outlined
+                          : Icons.person_outline,
+                      color: forest,
+                    ),
+                  ),
+                  title: Text(
+                    visitor.name,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    'Visiting ${visitor.host} · ${visitor.purpose}\nArrived ${_time(visitor.checkedIn)}${visitor.checkedOut == null ? '' : ' · Left ${_time(visitor.checkedOut!)}'}',
+                  ),
+                  isThreeLine: true,
+                  trailing: visitor.checkedOut == null
+                      ? OutlinedButton(
+                          onPressed: () => onCheckout(visitor),
+                          child: const Text('Check out'),
+                        )
+                      : const _StatusPill(text: 'Checked out'),
+                ),
+              ),
+            ),
+        const SizedBox(height: 10),
+        const _LocalNotice(),
+      ],
+    );
+  }
+}
+
+class _TasksPage extends StatelessWidget {
+  const _TasksPage({
+    required this.tasks,
+    required this.onCreate,
+    required this.onToggle,
+    required this.onRead,
+  });
+  final List<_ReceptionTask> tasks;
+  final VoidCallback onCreate, onRead;
+  final ValueChanged<_ReceptionTask> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final open = tasks.where((task) => !task.done).length;
+    return _PageScroll(
+      children: [
+        _PageHeading(
+          title: 'Reception tasks',
+          subtitle: 'A practical list for reminders, handovers and follow-ups.',
+          trailing: FilledButton.icon(
+            onPressed: onCreate,
+            icon: const Icon(Icons.add_task),
+            label: const Text('Add task'),
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _SmallCount(
+                label: 'open',
+                value: '$open',
+                icon: Icons.pending_actions_outlined,
+              ),
+            ),
+            const SizedBox(width: 10),
+            IconButton(
+              tooltip: 'Read task list aloud',
+              onPressed: onRead,
+              icon: const Icon(Icons.volume_up_outlined),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (tasks.isEmpty)
+          const _PanelCard(
+            title: 'No tasks yet',
+            child: _EmptyInline('Add a reminder or follow-up for the desk.'),
+          )
+        else
+          for (final task in tasks)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Card(
+                child: CheckboxListTile(
+                  value: task.done,
+                  onChanged: (_) => onToggle(task),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(
+                    task.title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      decoration: task.done ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '${task.detail} · ${task.done ? 'Completed' : 'Added ${_time(task.created)}'}',
+                  ),
+                ),
+              ),
+            ),
+        const SizedBox(height: 10),
+        const _LocalNotice(),
+      ],
+    );
+  }
+}
+
+class _TemplateChip extends StatelessWidget {
+  const _TemplateChip(this.label, this.icon);
+  final String label;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => ActionChip(
+    avatar: Icon(icon, size: 16, color: forest),
+    label: Text(label),
+    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '$label template selected. Use Create document to draft it.',
+        ),
+      ),
+    ),
+  );
+}
+
+class _LearnersPage extends StatefulWidget {
+  const _LearnersPage({required this.search, required this.onSpeak});
+  final String search;
+  final ValueChanged<String> onSpeak;
+  @override
+  State<_LearnersPage> createState() => _LearnersPageState();
+}
+
+class _LearnersPageState extends State<_LearnersPage> {
+  late final _search = TextEditingController(text: widget.search);
+  final _students = const [
+    ('Lerato Mokoena', 'Registration support', '071 555 0141'),
+    ('Thabo Khumalo', 'Academic support', '072 555 0108'),
+    ('Amina Dlamini', 'Financial aid', '073 555 0125'),
+    ('Sibusiso Ndlovu', 'Accessibility support', '074 555 0166'),
+    ('Neo Nkosi', 'New learner', '078 555 0104'),
+  ];
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _search.text.toLowerCase();
+    final filtered = _students
+        .where(
+          (s) =>
+              s.$1.toLowerCase().contains(q) || s.$2.toLowerCase().contains(q),
+        )
+        .toList();
+    return _PageScroll(
+      children: [
+        _PageHeading(
+          title: 'Learner directory',
+          subtitle: 'Sample contacts only. Use fictional records for this presentation.',
+        ),
+        TextField(
+          controller: _search,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            labelText: 'Search learners',
+            hintText: 'Name or support area',
+          ),
+        ),
+        const SizedBox(height: 14),
+        for (final s in filtered)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 9),
+            child: Card(
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: mint,
+                  child: Text(
+                    s.$1[0],
+                    style: const TextStyle(
+                      color: forest,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  s.$1,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text('${s.$2} · ${s.$3}'),
+                trailing: IconButton(
+                  tooltip: 'Read learner information',
+                  onPressed: () =>
+                      widget.onSpeak('${s.$1}. ${s.$2}. Phone ${s.$3}'),
+                  icon: const Icon(Icons.volume_up_outlined),
+                ),
+              ),
+            ),
+          ),
+        if (filtered.isEmpty)
+          const _EmptyInline('No learner matches this search.'),
+        const SizedBox(height: 10),
+        const _LocalNotice(),
+      ],
+    );
+  }
+}
+
+class _KnowledgePage extends StatelessWidget {
+  const _KnowledgePage();
+  @override
+  Widget build(BuildContext context) => const _PageScroll(
+    children: [
+      _PageHeading(
+        title: 'Reception knowledge',
+        subtitle: 'A quick reference for common campus questions. Sample information for discussion only.',
+      ),
+      _KnowledgeCard(
+        icon: Icons.access_time_rounded,
+        title: 'Office hours',
+        body: 'Monday to Friday, 08:00–16:00. Closed on public holidays.',
+      ),
+      SizedBox(height: 10),
+      _KnowledgeCard(
+        icon: Icons.location_on_outlined,
+        title: 'Find Student Support',
+        body: 'Main block, ground floor, next to the library. Ask reception if you need directions.',
+      ),
+      SizedBox(height: 10),
+      _KnowledgeCard(
+        icon: Icons.assignment_outlined,
+        title: 'Learner support requests',
+        body: 'Record the learner’s request, preferred contact method and any agreed follow-up. Only collect details needed to assist.',
+      ),
+      SizedBox(height: 10),
+      _KnowledgeCard(
+        icon: Icons.accessible_forward_rounded,
+        title: 'Accessibility support',
+        body: 'Ask the learner what support works best for them. Confirm accessible routes and arrange a private meeting when requested.',
+      ),
+      SizedBox(height: 18),
+      _LocalNotice(),
+    ],
+  );
+}
+
+class _KnowledgeCard extends StatelessWidget {
+  const _KnowledgeCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+  final IconData icon;
+  final String title, body;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(17),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            backgroundColor: mint,
+            child: Icon(icon, color: forest, size: 19),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  body,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: Color(0xFF607067),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Read answer aloud',
+            onPressed: () => FlutterTts().speak('$title. $body'),
+            icon: const Icon(Icons.volume_up_outlined, size: 19),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CopilotPage extends StatefulWidget {
+  const _CopilotPage({
+    required this.chat,
+    required this.onAsk,
+    required this.busy,
+    required this.error,
+    required this.listening,
+    required this.onVoice,
+    required this.onSpeak,
+  });
+  final List<_ChatLine> chat;
+  final Future<void> Function(String) onAsk;
+  final bool busy;
+  final String error;
+  final bool listening;
+  final VoidCallback onVoice;
+  final ValueChanged<String> onSpeak;
+  @override
+  State<_CopilotPage> createState() => _CopilotPageState();
+}
+
+class _CopilotPageState extends State<_CopilotPage> {
+  final _input = TextEditingController();
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final q = _input.text.trim();
+    if (q.isEmpty) return;
+    _input.clear();
+    unawaited(widget.onAsk(q));
+  }
+
+  @override
+  Widget build(BuildContext context) => _PageScroll(
+    children: [
+      _PageHeading(
+        title: 'Reception copilot',
+        subtitle: 'Your AI assistant is available from every screen for questions and reception actions.',
+      ),
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF174C42), Color(0xFF1D7163)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Color(0x35FFFFFF),
+              child: Icon(Icons.auto_awesome, color: Colors.white),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Liyabona AI',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      fontSize: 16,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    widget.error.isNotEmpty
+                        ? 'AI service unavailable · built-in commands remain available'
+                        : widget.busy
+                        ? 'Liyabona AI is working on your request…'
+                        : 'AI assistant · available throughout reception',
+                    style: const TextStyle(
+                      color: Color(0xFFD4E9E3),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      _PanelCard(
+        title: 'How voice requests are understood',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Your voice → recognised words → interpreter checks available screens and actions → app responds or asks you to clarify.',
+              style: TextStyle(fontSize: 13, height: 1.5, color: ink),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'The assistant can open screens and manage demo notes, tasks, calls, appointments, visitor check-ins and enquiries. It asks a follow-up when key details are unclear.',
+              style: TextStyle(fontSize: 12, height: 1.45, color: forest),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Liyabona AI performs app actions directly. Use the microphone here when you want to speak; you can also type requests.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: forest,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      _PanelCard(
+        title: 'Try asking',
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final prompt in [
+              'Summarise today’s appointments',
+              'What needs a call-back?',
+              'Remind me to prepare the welcome packs',
+              'Check in a visitor named Sam',
+              'Open the visitor register',
+            ])
+              ActionChip(
+                avatar: const Icon(Icons.auto_awesome, size: 14),
+                label: Text(prompt),
+                onPressed: () => widget.onAsk(prompt),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      Container(
+        constraints: const BoxConstraints(minHeight: 260),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(color: line),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final line in widget.chat)
+              Align(
+                alignment: line.user
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: line.user ? mint : const Color(0xFFF5F7F6),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!line.user)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 8, top: 2),
+                          child: Icon(
+                            Icons.auto_awesome,
+                            size: 16,
+                            color: teal,
+                          ),
+                        ),
+                      Flexible(
+                        child: Text(
+                          line.text,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.45,
+                            color: ink,
+                          ),
+                        ),
+                      ),
+                      if (!line.user)
+                        IconButton(
+                          tooltip: 'Read answer aloud',
+                          onPressed: () => widget.onSpeak(line.text),
+                          icon: const Icon(Icons.volume_up_outlined, size: 16),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (widget.busy)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 10),
+              Text('Liyabona AI is thinking…'),
+            ],
+          ),
+        ),
+      Row(
+        children: [
+          Semantics(
+            button: true,
+            label: widget.listening
+                ? 'Stop speaking to Liyabona AI'
+                : 'Speak to Liyabona AI',
+            child: IconButton.filledTonal(
+              tooltip: widget.listening
+                  ? 'Stop voice input'
+                  : 'Speak to Liyabona AI',
+              onPressed: widget.onVoice,
+              icon: Icon(
+                widget.listening ? Icons.stop_rounded : Icons.mic_rounded,
+              ),
+              style: IconButton.styleFrom(
+                foregroundColor: widget.listening ? Colors.white : forest,
+                backgroundColor: widget.listening
+                    ? const Color(0xFF9D3427)
+                    : mint,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _input,
+              enabled: !widget.busy,
+              maxLength: 600,
+              onSubmitted: (_) => _send(),
+              decoration: const InputDecoration(
+                labelText: 'Tell Liyabona AI what you need',
+                prefixIcon: Icon(Icons.chat_bubble_outline),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: 'Send question',
+            child: IconButton.filled(
+              onPressed: widget.busy ? null : _send,
+              icon: const Icon(Icons.send_rounded),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 14),
+      const _LocalNotice(),
+    ],
+  );
+}
+
+class _AssistantPopup extends StatelessWidget {
+  const _AssistantPopup({
+    required this.busy,
+    required this.listening,
+    required this.speaking,
+    required this.error,
+    required this.onStopSpeaking,
+    required this.onClose,
+  });
+
+  final bool busy, listening, speaking;
+  final String error;
+  final VoidCallback onStopSpeaking, onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = busy || listening || speaking;
+    final status = listening
+        ? 'Listening to you'
+        : speaking
+        ? 'Speaking'
+        : busy
+        ? 'Working on your request'
+        : 'Ready when you are';
+    return Align(
+      alignment: Alignment.bottomRight,
+      child: Padding(
+        padding: EdgeInsets.only(
+          right: 16,
+          bottom: MediaQuery.paddingOf(context).bottom + 88,
+        ),
+        child: Material(
+          color: Colors.white,
+          elevation: 16,
+          shadowColor: forest.withValues(alpha: .22),
+          clipBehavior: Clip.antiAlias,
+          borderRadius: BorderRadius.circular(24),
+          child: SizedBox(
+            width: 276,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+              child: Row(
+                children: [
+                  _AnimatedAssistantCharacter(
+                    active: active,
+                    speaking: speaking,
+                    listening: listening,
+                    size: 64,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Liyabona AI',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: ink,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          status,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: forest,
+                          ),
+                        ),
+                        if (error.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            error,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 10, color: amber),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (speaking)
+                    IconButton(
+                      tooltip: 'Stop the spoken answer',
+                      onPressed: onStopSpeaking,
+                      icon: const Icon(
+                        Icons.stop_circle_outlined,
+                        color: forest,
+                      ),
+                    ),
+                  IconButton(
+                    tooltip: 'Stop Liyabona AI and close',
+                    onPressed: onClose,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnimatedAssistantCharacter extends StatefulWidget {
+  const _AnimatedAssistantCharacter({
+    required this.active,
+    required this.speaking,
+    required this.listening,
+    required this.size,
+  });
+  final bool active, speaking, listening;
+  final double size;
+
+  @override
+  State<_AnimatedAssistantCharacter> createState() =>
+      _AnimatedAssistantCharacterState();
+}
+
+class _AnimatedAssistantCharacterState
+    extends State<_AnimatedAssistantCharacter>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _motion = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 620),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _motion.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedAssistantCharacter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) _motion.repeat(reverse: true);
+    if (!widget.active && oldWidget.active)
+      _motion.animateTo(0, duration: const Duration(milliseconds: 180));
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _motion,
+    builder: (context, child) => Transform.scale(
+      scale: 1 + (_motion.value * (widget.active ? .055 : .015)),
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: mint,
+                boxShadow: [
+                  BoxShadow(
+                    color: teal.withValues(alpha: .15 + (_motion.value * .14)),
+                    blurRadius: 18,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: widget.size * .78,
+              height: widget.size * .78,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF278B7C), Color(0xFF14574D)],
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _AssistantEye(
+                        blink: _motion.value > .92 && widget.active,
+                      ),
+                      SizedBox(width: widget.size * .12),
+                      _AssistantEye(
+                        blink: _motion.value > .92 && widget.active,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: widget.speaking ? 19 + (_motion.value * 7) : 18,
+                    height: widget.speaking ? 10 + (_motion.value * 8) : 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 1,
+              child: Container(
+                width: 4,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: teal,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF3BF5C),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            if (widget.listening)
+              Positioned(
+                right: 0,
+                top: 2,
+                child: Icon(Icons.graphic_eq_rounded, size: 17, color: forest),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _AssistantEye extends StatelessWidget {
+  const _AssistantEye({required this.blink});
+  final bool blink;
+  @override
+  Widget build(BuildContext context) => AnimatedContainer(
+    duration: const Duration(milliseconds: 100),
+    width: 8,
+    height: blink ? 2 : 8,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+    ),
+  );
+}
+
+class _MorePage extends StatelessWidget {
+  const _MorePage({required this.onNavigate, required this.onSpeak});
+  final ValueChanged<String> onNavigate;
+  final VoidCallback onSpeak;
+  @override
+  Widget build(BuildContext context) => _PageScroll(
+    children: [
+      const _PageHeading(
+        title: 'More reception tools',
+        subtitle: 'Explore the other areas of the demo.',
+      ),
+      for (final item in const [
+        ('Enquiries', Icons.assignment_outlined, 'Requests and follow-ups'),
+        ('Notes', Icons.sticky_note_2_outlined, 'Working notes and handovers'),
+        (
+          'Documents',
+          Icons.description_outlined,
+          'Letters and printable forms',
+        ),
+        (
+          'Emails',
+          Icons.mark_email_unread_outlined,
+          'Draft messages for review',
+        ),
+        ('Learners', Icons.people_alt_outlined, 'Fictional learner directory'),
+        ('Knowledge', Icons.menu_book_outlined, 'Common campus answers'),
+        ('AI copilot', Icons.auto_awesome_rounded, 'Ask or dictate a question'),
+      ])
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: mint,
+                child: Icon(item.$2, color: forest),
+              ),
+              title: Text(
+                item.$1,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: Text(item.$3),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => onNavigate(item.$1),
+            ),
+          ),
+        ),
+      const SizedBox(height: 12),
+      OutlinedButton.icon(
+        onPressed: onSpeak,
+        icon: const Icon(Icons.volume_up_outlined),
+        label: const Text('Read this page aloud'),
+      ),
+      const SizedBox(height: 16),
+      const _LocalNotice(),
+    ],
+  );
+}
+
+class _SmallCount extends StatelessWidget {
+  const _SmallCount({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+  final String label, value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: line),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: teal),
+        const SizedBox(width: 7),
+        Text(
+          value,
+          style: const TextStyle(fontWeight: FontWeight.w900, color: ink),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, color: Color(0xFF6D7B73)),
+        ),
+      ],
+    ),
+  );
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.text, this.warm = false});
+  final String text;
+  final bool warm;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: warm ? amber : mint,
+      borderRadius: BorderRadius.circular(30),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w800,
+        color: warm ? const Color(0xFF805910) : forest,
+      ),
+    ),
+  );
+}
+
+class _RecordDialog extends StatefulWidget {
+  const _RecordDialog({required this.kind, this.initial = ''});
+  final String kind, initial;
+  @override
+  State<_RecordDialog> createState() => _RecordDialogState();
+}
+
+class _RecordDialogState extends State<_RecordDialog> {
+  late final _title = TextEditingController(
+        text: widget.kind == 'Note' ? 'Voice note' : '',
+      ),
+      _name = TextEditingController(),
+      _detail = TextEditingController(text: widget.initial),
+      _phone = TextEditingController(),
+      _when = TextEditingController(text: 'Tomorrow, 10:00'),
+      _location = TextEditingController(text: 'Student Support office');
+  bool _callback = true;
+  String _priority = 'Normal', _category = 'General enquiry';
+  @override
+  void dispose() {
+    _title.dispose();
+    _name.dispose();
+    _detail.dispose();
+    _phone.dispose();
+    _when.dispose();
+    _location.dispose();
+    super.dispose();
+  }
+
+  String get _headline => switch (widget.kind) {
+    'Note' => 'Create a working note',
+    'Call' => 'Log an incoming call',
+    'Appointment' => 'Book an appointment',
+    'Enquiry' => 'Create a student enquiry',
+    'Visitor' => 'Check in a visitor',
+    'Task' => 'Add a reception task',
+    'Email' => 'Draft an email',
+    _ => 'Draft a document',
+  };
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    return AlertDialog(
+      title: Text(
+        _headline,
+        style: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+      content: SizedBox(
+        width: width > 650 ? 520 : width * .85,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.kind == 'Call' ||
+                  widget.kind == 'Appointment' ||
+                  widget.kind == 'Enquiry' ||
+                  widget.kind == 'Visitor' ||
+                  widget.kind == 'Email')
+                TextField(
+                  controller: _name,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: switch (widget.kind) {
+                      'Call' => 'Caller name',
+                      'Visitor' => 'Visitor name',
+                      'Email' => 'Recipient name or email address',
+                      _ => 'Learner name',
+                    },
+                    prefixIcon: const Icon(Icons.person_outline),
+                  ),
+                ),
+              if (widget.kind == 'Call') ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Call-back number',
+                    prefixIcon: Icon(Icons.call_outlined),
+                  ),
+                ),
+              ],
+              if (widget.kind == 'Appointment') ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _title,
+                  decoration: const InputDecoration(
+                    labelText: 'Meeting purpose',
+                    prefixIcon: Icon(Icons.event_outlined),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _when,
+                  decoration: const InputDecoration(
+                    labelText: 'Date and time',
+                    prefixIcon: Icon(Icons.schedule),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _location,
+                  decoration: const InputDecoration(
+                    labelText: 'Location',
+                    prefixIcon: Icon(Icons.location_on_outlined),
+                  ),
+                ),
+              ],
+              if (widget.kind == 'Note' ||
+                  widget.kind == 'Document' ||
+                  widget.kind == 'Task' ||
+                  widget.kind == 'Visitor' ||
+                  widget.kind == 'Email')
+                TextField(
+                  controller: _title,
+                  autofocus:
+                      widget.kind == 'Note' ||
+                      widget.kind == 'Document' ||
+                      widget.kind == 'Task' ||
+                      widget.kind == 'Email',
+                  decoration: InputDecoration(
+                    labelText: switch (widget.kind) {
+                      'Note' => 'Note title',
+                      'Visitor' => 'Department / person to visit',
+                      'Task' => 'Task title',
+                      'Email' => 'Email subject',
+                      _ => 'Document title',
+                    },
+                    prefixIcon: const Icon(Icons.title),
+                  ),
+                ),
+              if (widget.kind == 'Enquiry') ...[
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: _category,
+                  decoration: const InputDecoration(
+                    labelText: 'Enquiry category',
+                  ),
+                  items:
+                      const [
+                            'General enquiry',
+                            'Registration',
+                            'Accessibility',
+                            'Academic support',
+                            'Financial aid',
+                            'Documents',
+                            'Other',
+                          ]
+                          .map(
+                            (e) => DropdownMenuItem(value: e, child: Text(e)),
+                          )
+                          .toList(),
+                  onChanged: (v) => setState(() => _category = v ?? _category),
+                ),
+              ],
+              if (widget.kind == 'Call' || widget.kind == 'Enquiry') ...[
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: _priority,
+                  decoration: const InputDecoration(labelText: 'Priority'),
+                  items: const ['Low', 'Normal', 'High']
+                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _priority = v ?? _priority),
+                ),
+              ],
+              const SizedBox(height: 10),
+              TextField(
+                controller: _detail,
+                minLines: 3,
+                maxLines: 6,
+                decoration: InputDecoration(
+                  labelText: switch (widget.kind) {
+                    'Note' => 'Note details',
+                    'Call' => 'Reason for call / message',
+                    'Appointment' => 'Purpose or additional details',
+                    'Enquiry' => 'Request summary',
+                    'Visitor' => 'Reason for visit',
+                    'Task' => 'Task details or follow-up notes',
+                    'Email' => 'Email message draft',
+                    _ => 'Document content',
+                  },
+                  alignLabelWithHint: true,
+                  prefixIcon: const Padding(
+                    padding: EdgeInsets.only(bottom: 60),
+                    child: Icon(Icons.notes_outlined),
+                  ),
+                ),
+              ),
+              if (widget.kind == 'Call')
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Call-back requested'),
+                  value: _callback,
+                  onChanged: (v) => setState(() => _callback = v),
+                ),
+              const SizedBox(height: 9),
+              const Text(
+                'Demo only: this record stays in memory for this presentation.',
+                style: TextStyle(fontSize: 10, color: Color(0xFF708078)),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _save,
+          icon: const Icon(Icons.check),
+          label: const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    final when = DateTime.now().add(const Duration(days: 1));
+    Navigator.pop(
+      context,
+      _RecordData(
+        title: _title.text.trim().isEmpty
+            ? (widget.kind == 'Visitor' ? 'Student Support' : widget.kind)
+            : _title.text.trim(),
+        name: _name.text.trim().isEmpty
+            ? widget.kind == 'Visitor'
+                  ? 'Walk-in visitor'
+                  : widget.kind == 'Email'
+                  ? 'Recipient to be confirmed'
+                  : 'Walk-in learner'
+            : _name.text.trim(),
+        phone: _phone.text.trim(),
+        detail: _detail.text.trim().isEmpty
+            ? 'Details to be added.'
+            : _detail.text.trim(),
+        priority: _priority,
+        callback: _callback,
+        category: _category,
+        when: DateTime(when.year, when.month, when.day, 10),
+        location: _location.text.trim().isEmpty
+            ? 'Student Support office'
+            : _location.text.trim(),
+      ),
+    );
+  }
+}
+
+class _RecordData {
+  const _RecordData({
+    required this.title,
+    required this.name,
+    required this.phone,
+    required this.detail,
+    required this.priority,
+    required this.callback,
+    required this.category,
+    required this.when,
+    required this.location,
+  });
+  final String title, name, phone, detail, priority, category, location;
+  final bool callback;
+  final DateTime when;
+}
+
+class _DestinationMatch {
+  const _DestinationMatch(this.choices, this.confidence);
+  final List<String> choices;
+  final double confidence;
+}
+
+class _NavItem {
+  const _NavItem(this.label, this.icon);
+  final String label;
+  final IconData icon;
+}
+
+class _Appointment {
+  const _Appointment(
+    this.title,
+    this.name,
+    this.when,
+    this.location,
+    this.category,
+  );
+  final String title, name, location, category;
+  final DateTime when;
+}
+
+class _Call {
+  const _Call(
+    this.caller,
+    this.phone,
+    this.reason,
+    this.callback,
+    this.priority,
+    this.when,
+  );
+  final String caller, phone, reason, priority;
+  final bool callback;
+  final DateTime when;
+}
+
+class _Note {
+  const _Note(this.title, this.body, this.when);
+  final String title, body;
+  final DateTime when;
+}
+
+class _Enquiry {
+  const _Enquiry(
+    this.name,
+    this.category,
+    this.detail,
+    this.status,
+    this.priority,
+  );
+  final String name, category, detail, status, priority;
+}
+
+class _Document {
+  const _Document(this.title, this.summary, this.when);
+  final String title, summary;
+  final DateTime when;
+}
+
+class _EmailDraft {
+  const _EmailDraft(this.recipient, this.subject, this.body, this.when);
+  final String recipient, subject, body;
+  final DateTime when;
+}
+
+class _Visitor {
+  _Visitor(this.name, this.host, this.purpose, this.checkedIn);
+  final String name, host, purpose;
+  final DateTime checkedIn;
+  DateTime? checkedOut;
+}
+
+class _ReceptionTask {
+  _ReceptionTask(this.title, this.detail, this.created, this.done);
+  final String title, detail;
+  final DateTime created;
+  bool done;
+}
+
+class _ChatLine {
+  const _ChatLine(this.user, this.text);
+  final bool user;
+  final String text;
+}
+
+class _AssistantResult {
+  const _AssistantResult({
+    required this.reply,
+    required this.action,
+    required this.destination,
+    required this.fields,
+    required this.needsClarification,
+  });
+
+  final String reply, action, destination;
+  final Map<String, String> fields;
+  final bool needsClarification;
+
+  factory _AssistantResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['fields'];
+    final fields = <String, String>{};
+    if (raw is Map) {
+      for (final entry in raw.entries) {
+        if (entry.key is String && entry.value is String) {
+          fields[entry.key as String] = entry.value as String;
+        }
+      }
+    }
+    return _AssistantResult(
+      reply: json['reply'] is String
+          ? json['reply'] as String
+          : 'I am ready to help.',
+      action: json['action'] is String ? json['action'] as String : 'clarify',
+      destination: json['destination'] is String
+          ? json['destination'] as String
+          : '',
+      fields: fields,
+      needsClarification: json['needs_clarification'] == true,
+    );
+  }
+}
+
+bool _sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+String _time(DateTime value) {
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  return '$hour:${value.minute.toString().padLeft(2, '0')} ${value.hour < 12 ? 'AM' : 'PM'}';
+}
+
+String _month(int m) => const [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+][m - 1];
+String _weekday(DateTime d) => const [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+][d.weekday - 1];
