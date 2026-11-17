@@ -36,7 +36,7 @@ Start a voice session using **Talk to Liyabona**. Say a command, pause while the
 
 ### Windows offline voice
 
-On Windows, voice commands use the Windows SAPI speech recognizer and the local command handler. Voice requests do not call the online AI endpoint. Notes, tasks, calendar items, email drafts, call logs, enquiries, visitors and documents created by voice are saved in the signed-in Windows user's local app preferences and restored when Liyabona starts again. Spoken replies use an installed Windows speech voice.
+On Windows, voice commands use Windows SAPI speech recognition and the local command handler. The recognizer's native code is compiled into `liyabona.exe`, rather than loaded from a separate `speech_to_text_windows_plugin.dll`. Voice requests do not call the online AI endpoint. Notes, tasks, calendar items, email drafts, call logs, enquiries, visitors and documents created by voice are saved in the signed-in Windows user's local app preferences and restored when Liyabona starts again. Spoken replies use an installed Windows speech voice.
 
 Try commands such as:
 
@@ -50,7 +50,7 @@ Try commands such as:
 - “Draft an email to Amina about financial aid.”
 - “Read this screen.”
 
-The Windows speech recognizer must be available and configured on the computer, and Windows must have microphone access. No cloud AI is used for Windows voice or copilot requests. The built-in command handler understands known reception actions; it does not provide open-ended generative AI while offline.
+The Windows speech recognizer must be available and configured on the computer, and Windows must have microphone access. Depending on the Windows language configuration, an offline speech language pack may still be required. No cloud AI is used for Windows voice or copilot requests. The built-in command handler understands known reception actions; it does not provide open-ended generative AI while offline.
 
 Examples:
 

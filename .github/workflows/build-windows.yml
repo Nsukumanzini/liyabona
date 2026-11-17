@@ -27,6 +27,17 @@ jobs:
       - name: Build release app
         run: flutter build windows --release
 
+      - name: Verify speech recognizer is linked into the app
+        shell: pwsh
+        run: |
+          $release = "build/windows/x64/runner/Release"
+          if (Test-Path "$release/speech_to_text_windows_plugin.dll") {
+            throw "The separate speech recognition DLL was built. Check the local dependency override."
+          }
+          if (-not (Test-Path "$release/liyabona.exe")) {
+            throw "The Windows executable was not produced."
+          }
+
       - name: Package Windows build
         shell: pwsh
         run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath Liyabona-Windows.zip -Force
