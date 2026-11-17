@@ -40,6 +40,9 @@ dependencies:
   shared_preferences: ^2.5.6
 
 dependency_overrides:
+  # Compile Windows SAPI text-to-speech into the app instead of loading a DLL.
+  flutter_tts:
+    path: packages/flutter_tts
   # Keep the Dart Windows implementation, but register the native SAPI code
   # from the app runner so Windows does not load a separate plugin DLL.
   speech_to_text_windows:

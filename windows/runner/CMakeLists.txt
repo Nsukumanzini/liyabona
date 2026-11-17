@@ -41,18 +41,23 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 # unsigned speech_to_text_windows_plugin.dll at startup.
 set(SPEECH_TO_TEXT_WINDOWS_DIR
   "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/speech_to_text_windows/windows")
+set(FLUTTER_TTS_WINDOWS_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/flutter_tts/windows")
 target_sources(${BINARY_NAME} PRIVATE
   "${SPEECH_TO_TEXT_WINDOWS_DIR}/speech_to_text_windows.cpp"
-  "${SPEECH_TO_TEXT_WINDOWS_DIR}/speech_to_text_windows_plugin.cpp")
+  "${SPEECH_TO_TEXT_WINDOWS_DIR}/speech_to_text_windows_plugin.cpp"
+  "${FLUTTER_TTS_WINDOWS_DIR}/flutter_tts_plugin.cpp")
 set_source_files_properties(
   "${SPEECH_TO_TEXT_WINDOWS_DIR}/speech_to_text_windows.cpp"
   "${SPEECH_TO_TEXT_WINDOWS_DIR}/speech_to_text_windows_plugin.cpp"
+  "${FLUTTER_TTS_WINDOWS_DIR}/flutter_tts_plugin.cpp"
   PROPERTIES
     COMPILE_OPTIONS "/W3;/WX-;/wd4996;/wd4245;/wd4100"
-    COMPILE_DEFINITIONS "WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS")
+    COMPILE_DEFINITIONS "WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS;FLUTTER_PLUGIN_IMPL")
 target_include_directories(${BINARY_NAME} PRIVATE
   "${SPEECH_TO_TEXT_WINDOWS_DIR}"
-  "${SPEECH_TO_TEXT_WINDOWS_DIR}/include")
+  "${SPEECH_TO_TEXT_WINDOWS_DIR}/include"
+  "${FLUTTER_TTS_WINDOWS_DIR}/include")
 target_compile_options(${BINARY_NAME} PRIVATE /wd4996 /wd4245)
 target_link_libraries(${BINARY_NAME} PRIVATE
   flutter_wrapper_plugin
@@ -60,6 +65,8 @@ target_link_libraries(${BINARY_NAME} PRIVATE
   oleaut32
   uuid
   sapi)
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/flutter_window.cpp"
+  PROPERTIES COMPILE_DEFINITIONS "FLUTTER_PLUGIN_IMPL")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

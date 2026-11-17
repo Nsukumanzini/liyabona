@@ -4,6 +4,7 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include <speech_to_text_windows/speech_to_text_windows.h>
+#include <flutter_tts/flutter_tts_plugin.h>
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -26,6 +27,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  FlutterTtsPluginRegisterWithRegistrar(
+      flutter_controller_->engine()->GetRegistrarForPlugin("FlutterTtsPlugin"));
   SpeechToTextWindowsRegisterWithRegistrar(
       flutter_controller_->engine()->GetRegistrarForPlugin(
           "SpeechToTextWindows"));
