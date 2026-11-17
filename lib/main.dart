@@ -788,21 +788,14 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     if (_assistantBusy || question.trim().isEmpty) return;
     if (_isWindowsDesktop) {
       await _offlineDataReady;
-      _chat.add(_ChatLine(true, question));
       setState(() => _assistantBusy = true);
       await _handleVoiceCommand(
         question,
         consultAi: false,
         resumeVoice: false,
-        speakResponse: false,
+        speakResponse: true,
       );
-      final parts = _transcript.split('\n');
-      final answer = parts.length > 1
-          ? parts.skip(1).join(' ')
-          : _answerLocally(question);
-      _chat.add(_ChatLine(false, answer));
       if (mounted) setState(() => _assistantBusy = false);
-      await _speak(answer);
       return;
     }
     if (_voiceSession) {
@@ -1556,7 +1549,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         _transcript = '“$phrase”\n$response';
         _listening = false;
       });
-    if (consultAi && !stopCommand) {
+    if ((consultAi || _isWindowsDesktop) && !stopCommand) {
       _chat.add(_ChatLine(true, phrase));
       _chat.add(_ChatLine(false, response));
     }
