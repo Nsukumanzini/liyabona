@@ -34,6 +34,7 @@ class SpeechToTextWindowsPlugin : public flutter::Plugin {
   void Stop(std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void Cancel(std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void GetLocales(std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+  std::string SelectEnglishRecognizer();
 
   void SendTextRecognition(const std::string& text, bool is_final = false);
   void SendError(const std::string& error);
@@ -52,6 +53,7 @@ class SpeechToTextWindowsPlugin : public flutter::Plugin {
   std::mutex m_mutex;
   bool m_initialized;
   bool m_listening;
+  std::string m_recognizerLocale;
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> m_channel;
   flutter::PluginRegistrarWindows* m_registrar;

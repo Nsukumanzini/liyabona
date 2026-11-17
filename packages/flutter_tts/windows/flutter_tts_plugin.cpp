@@ -9,6 +9,8 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <vector>
+#include <cwchar>
 
 typedef std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> FlutterResult;
 //typedef flutter::MethodResult<flutter::EncodableValue>* PFlutterResult;
@@ -501,39 +503,45 @@ namespace {
 	}
 
 	void FlutterTtsPlugin::setLanguage(const std::string voiceLanguage, FlutterResult& result) {
-		HRESULT hr;
-		IEnumSpObjectTokens* cpEnum = NULL;
-		hr = SpEnumTokens(SPCAT_VOICES, NULL, NULL, &cpEnum);
-		if (FAILED(hr)) { result->Success(0); return; }
-		ULONG ulCount = 0;
-		hr = cpEnum->GetCount(&ulCount);
-		if (FAILED(hr)) { result->Success(0); return; }
-		ISpObjectToken* cpVoiceToken = NULL;
-		bool found = false;
-		while (ulCount--)
-		{
-			cpVoiceToken = NULL;
-			hr = cpEnum->Next(1, &cpVoiceToken, NULL);
-			if (FAILED(hr)) { result->Success(0); return; }
-			CComPtr<ISpDataKey> cpAttribKey;
-			hr = cpVoiceToken->OpenKey(L"Attributes", &cpAttribKey);
-			if (FAILED(hr)) { result->Success(0); return; }
-
-			WCHAR* psz = NULL;
-			hr = cpAttribKey->GetStringValue(L"Language", &psz);
-		    wchar_t locale[25];
-            LCIDToLocaleName((LCID)std::strtol(CW2A(psz), NULL, 16), locale, 25, 0);
-            std::string language = CW2A(locale);
-			if (language == voiceLanguage)
-			{
-				pVoice->SetVoice(cpVoiceToken);
-				found = true;
-			}
-			::CoTaskMemFree(psz);
-			cpVoiceToken->Release();
+		std::vector<std::string> preferredLanguages{voiceLanguage};
+		if (voiceLanguage == "en-ZA") {
+			preferredLanguages.push_back("en-GB");
+			preferredLanguages.push_back("en-US");
 		}
-		if (found) result->Success(1);
-		else result->Success(0);
+		for (const auto& preferredLanguage : preferredLanguages) {
+			IEnumSpObjectTokens* cpEnum = NULL;
+			HRESULT hr = SpEnumTokens(SPCAT_VOICES, NULL, NULL, &cpEnum);
+			if (FAILED(hr) || !cpEnum) continue;
+			ULONG ulCount = 0;
+			hr = cpEnum->GetCount(&ulCount);
+			bool found = false;
+			while (SUCCEEDED(hr) && ulCount--) {
+				ISpObjectToken* cpVoiceToken = NULL;
+				hr = cpEnum->Next(1, &cpVoiceToken, NULL);
+				if (FAILED(hr) || !cpVoiceToken) break;
+				CComPtr<ISpDataKey> cpAttribKey;
+				hr = cpVoiceToken->OpenKey(L"Attributes", &cpAttribKey);
+				WCHAR* psz = NULL;
+				if (SUCCEEDED(hr)) {
+					hr = cpAttribKey->GetStringValue(L"Language", &psz);
+				}
+				if (SUCCEEDED(hr) && psz) {
+					wchar_t locale[LOCALE_NAME_MAX_LENGTH] = {};
+					const LCID voiceLocale = static_cast<LCID>(std::wcstoul(psz, NULL, 16));
+					if (LCIDToLocaleName(voiceLocale, locale, LOCALE_NAME_MAX_LENGTH, 0) > 0 &&
+						preferredLanguage == CW2A(locale)) {
+						pVoice->SetVoice(cpVoiceToken);
+						found = true;
+					}
+				}
+				if (psz) ::CoTaskMemFree(psz);
+				cpVoiceToken->Release();
+				if (found) break;
+			}
+			cpEnum->Release();
+			if (found) { result->Success(1); return; }
+		}
+		result->Success(0);
 	}
 
 

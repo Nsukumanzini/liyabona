@@ -6,10 +6,14 @@
 
 #include <windows.h>
 #include <sapi.h>
+#include <sphelper.h>
+#include <cwchar>
+#include <cwctype>
 #include <iostream>
 #include <thread>
 #include <string>
 #include <functional>
+#include <sstream>
 
 namespace speech_to_text_windows {
 
@@ -64,7 +68,8 @@ SpeechToTextWindowsPlugin::SpeechToTextWindowsPlugin()
   , m_cpRecoGrammar(nullptr)
   , m_cpAudio(nullptr)
   , m_initialized(false)
-  , m_listening(false) {
+  , m_listening(false)
+  , m_recognizerLocale("en-US") {
   std::cout << "SpeechToTextWindowsPlugin created" << std::endl;
   CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 }
@@ -170,6 +175,8 @@ void SpeechToTextWindowsPlugin::Initialize(
       return;
     }
 
+    m_recognizerLocale = SelectEnglishRecognizer();
+
     // Create default audio input
     hr = CoCreateInstance(CLSID_SpMMAudioIn, NULL, CLSCTX_INPROC_SERVER,
                          IID_ISpAudio, (void**)&m_cpAudio);
@@ -221,6 +228,69 @@ void SpeechToTextWindowsPlugin::Initialize(
   }
 }
 
+std::string SpeechToTextWindowsPlugin::SelectEnglishRecognizer() {
+  struct LanguagePreference {
+    LANGID languageId;
+    const char* locale;
+  };
+  // Use South African English when Windows has that offline recognizer.
+  // Stock Windows speech recognition commonly offers en-GB but not en-ZA.
+  const LanguagePreference preferences[] = {
+      {0x1c09, "en-ZA"}, {0x0809, "en-GB"}, {0x0c09, "en-AU"},
+      {0x1009, "en-CA"}, {0x4009, "en-IN"}, {0x0409, "en-US"},
+  };
+
+  IEnumSpObjectTokens* recognizers = nullptr;
+  HRESULT hr = SpEnumTokens(SPCAT_RECOGNIZERS, nullptr, nullptr, &recognizers);
+  if (FAILED(hr) || !recognizers) return "en-US";
+
+  ULONG count = 0;
+  if (FAILED(recognizers->GetCount(&count))) {
+    recognizers->Release();
+    return "en-US";
+  }
+
+  for (const auto& preference : preferences) {
+    for (ULONG index = 0; index < count; ++index) {
+      ISpObjectToken* token = nullptr;
+      if (FAILED(recognizers->Item(index, &token)) || !token) continue;
+
+      WCHAR* languageValue = nullptr;
+      const HRESULT languageHr = token->GetStringValue(L"Language", &languageValue);
+      bool matches = false;
+      if (SUCCEEDED(languageHr) && languageValue) {
+        std::wstring languages(languageValue);
+        CoTaskMemFree(languageValue);
+        size_t start = 0;
+        while (start < languages.size()) {
+          const size_t end = languages.find_first_of(L";,", start);
+          const std::wstring value = languages.substr(
+              start, end == std::wstring::npos ? end : end - start);
+          wchar_t* parsedEnd = nullptr;
+          const unsigned long localeId = std::wcstoul(value.c_str(), &parsedEnd, 16);
+          if (parsedEnd != value.c_str() &&
+              LOWORD(localeId) == preference.languageId) {
+            matches = true;
+            break;
+          }
+          if (end == std::wstring::npos) break;
+          start = end + 1;
+        }
+      }
+
+      if (matches && SUCCEEDED(m_cpRecognizer->SetRecognizer(token))) {
+        token->Release();
+        recognizers->Release();
+        return preference.locale;
+      }
+      token->Release();
+    }
+  }
+
+  recognizers->Release();
+  return "en-US";
+}
+
 void SpeechToTextWindowsPlugin::Listen(
     const flutter::MethodCall<flutter::EncodableValue> &method_call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -270,23 +340,49 @@ void SpeechToTextWindowsPlugin::Listen(
           
           switch (event.eEventId) {
             case SPEI_RECOGNITION: {
-              std::cout << "SPEI_RECOGNITION event" << std::endl;
               ISpRecoResult* pResult = reinterpret_cast<ISpRecoResult*>(event.lParam);
               if (pResult) {
-                LPWSTR pwszText;
+                SPPHRASE* phrase = nullptr;
+                bool confident = SUCCEEDED(pResult->GetPhrase(&phrase)) && phrase;
+                if (confident) {
+                  confident = phrase->Rule.Confidence != SP_LOW_CONFIDENCE;
+                  for (ULONG i = 0; confident &&
+                                  i < phrase->Rule.ulCountOfElements; ++i) {
+                    confident = phrase->pElements[i].ActualConfidence !=
+                                SP_LOW_CONFIDENCE;
+                  }
+                  CoTaskMemFree(phrase);
+                }
+
+                LPWSTR pwszText = nullptr;
                 hr = pResult->GetText(SP_GETWHOLEPHRASE, SP_GETWHOLEPHRASE, 
                                     TRUE, &pwszText, NULL);
                 if (SUCCEEDED(hr) && pwszText) {
+                  if (confident) {
                   // Convert to UTF-8
                   int size = WideCharToMultiByte(CP_UTF8, 0, pwszText, -1, 
                                                nullptr, 0, nullptr, nullptr);
                   if (size > 0) {
-                    std::string utf8Text(size - 1, '\0');
+                    std::string utf8Text(size, '\0');
                     WideCharToMultiByte(CP_UTF8, 0, pwszText, -1, 
                                       &utf8Text[0], size, nullptr, nullptr);
-                    
-                    std::cout << "Recognized text: " << utf8Text << std::endl;
-                    SendTextRecognition(utf8Text, true);
+                    utf8Text.resize(size - 1);
+
+                    std::wistringstream words(pwszText);
+                    std::wstring word;
+                    size_t wordCount = 0;
+                    while (words >> word) ++wordCount;
+                    std::wstring normalized(pwszText);
+                    for (auto& character : normalized) {
+                      character = static_cast<wchar_t>(std::towlower(character));
+                    }
+                    const bool shortControl = normalized == L"stop" ||
+                                              normalized == L"cancel" ||
+                                              normalized == L"help";
+                    if (wordCount >= 2 || shortControl) {
+                      SendTextRecognition(utf8Text, true);
+                    }
+                  }
                   }
                   CoTaskMemFree(pwszText);
                 }
@@ -294,31 +390,10 @@ void SpeechToTextWindowsPlugin::Listen(
               }
               break;
             }
-            case SPEI_HYPOTHESIS: {
-              std::cout << "SPEI_HYPOTHESIS event" << std::endl;
-              ISpRecoResult* pResult = reinterpret_cast<ISpRecoResult*>(event.lParam);
-              if (pResult) {
-                LPWSTR pwszText;
-                hr = pResult->GetText(SP_GETWHOLEPHRASE, SP_GETWHOLEPHRASE, 
-                                    TRUE, &pwszText, NULL);
-                if (SUCCEEDED(hr) && pwszText) {
-                  // Convert to UTF-8
-                  int size = WideCharToMultiByte(CP_UTF8, 0, pwszText, -1, 
-                                               nullptr, 0, nullptr, nullptr);
-                  if (size > 0) {
-                    std::string utf8Text(size - 1, '\0');
-                    WideCharToMultiByte(CP_UTF8, 0, pwszText, -1, 
-                                      &utf8Text[0], size, nullptr, nullptr);
-                    
-                    std::cout << "Hypothesis text: " << utf8Text << std::endl;
-                    SendTextRecognition(utf8Text, false);
-                  }
-                  CoTaskMemFree(pwszText);
-                }
-                pResult->Release();
-              }
+            // Ignore speculative hypotheses. Only final, confident speech is
+            // surfaced to the app, avoiding text updates from background noise.
+            case SPEI_HYPOTHESIS:
               break;
-            }
             case SPEI_SOUND_START:
               std::cout << "Sound detected!" << std::endl;
               SendStatus("soundDetected");
@@ -368,11 +443,15 @@ void SpeechToTextWindowsPlugin::Cancel(
 
 void SpeechToTextWindowsPlugin::GetLocales(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  
   flutter::EncodableList locales;
-  locales.push_back(flutter::EncodableValue("en-US:English (United States)"));
-  locales.push_back(flutter::EncodableValue("en-GB:English (United Kingdom)"));
-  
+  std::string name = "English";
+  if (m_recognizerLocale == "en-ZA") name = "English (South Africa)";
+  else if (m_recognizerLocale == "en-GB") name = "English (United Kingdom)";
+  else if (m_recognizerLocale == "en-AU") name = "English (Australia)";
+  else if (m_recognizerLocale == "en-CA") name = "English (Canada)";
+  else if (m_recognizerLocale == "en-IN") name = "English (India)";
+  else if (m_recognizerLocale == "en-US") name = "English (United States)";
+  locales.push_back(flutter::EncodableValue(m_recognizerLocale + ":" + name));
   result->Success(flutter::EncodableValue(locales));
 }
 
