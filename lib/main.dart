@@ -62,6 +62,8 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
   final List<_Enquiry> _enquiries = [];
   final List<_Document> _documents = [];
   final List<_EmailDraft> _emails = [];
+  String? _mailboxAddress;
+  String? _mailboxProvider;
   final List<_Visitor> _visitors = [];
   final List<_ReceptionTask> _tasks = [];
   final List<_ChatLine> _chat = [];
@@ -254,7 +256,6 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
   List<_NavItem> get _nav => const [
     _NavItem('Home', Icons.grid_view_rounded),
     _NavItem('Calendar', Icons.calendar_month_rounded),
-    _NavItem('Call log', Icons.call_rounded),
     _NavItem('Enquiries', Icons.assignment_outlined),
     _NavItem('Notes', Icons.sticky_note_2_outlined),
     _NavItem('Documents', Icons.description_outlined),
@@ -1346,7 +1347,8 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     'Home' => _homeSummary(),
     'Notes' => '${_notes.length} saved notes.',
     'Documents' => '${_documents.length} draft documents.',
-    'Emails' => '${_emails.length} email drafts. None have been sent.',
+    'Emails' =>
+      '${_mailboxAddress == null ? 'No college mailbox is selected' : 'Mailbox setup saved for $_mailboxAddress'}. It is not connected. ${_emails.length} email drafts are saved locally and none have been sent.',
     'Enquiries' => '${_enquiries.length} student enquiries.',
     'Learners' => 'The learner directory is open.',
     'Knowledge' => 'Campus information is open.',
@@ -1415,6 +1417,108 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       });
   }
 
+  Future<void> _showEmailSetup() async {
+    final addressController = TextEditingController(
+      text: _mailboxAddress ?? '',
+    );
+    var provider = _mailboxProvider ?? 'Microsoft 365';
+    var invalidAddress = false;
+    try {
+      final selection = await showDialog<(String, String)>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Set up Student Support email'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Choose the college mailbox and email service. This demo only saves your selection on this device; it does not sign in or connect.',
+                    style: TextStyle(height: 1.4),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: addressController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: 'Student Support email address',
+                      hintText: 'username@gscollege.edu.za',
+                      errorText: invalidAddress
+                          ? 'Enter a valid college email address.'
+                          : null,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    value: provider,
+                    decoration: const InputDecoration(
+                      labelText: 'College email service',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'Microsoft 365',
+                        child: Text('Microsoft 365'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Google Workspace',
+                        child: Text('Google Workspace'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Other / IMAP',
+                        child: Text('Other / IMAP'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setDialogState(() => provider = value);
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'A secure connection still needs the college to confirm its provider and approve access. Do not enter an email password here.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF68776E)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final address = addressController.text.trim();
+                  final valid = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+                      .hasMatch(address);
+                  if (!valid) {
+                    setDialogState(() => invalidAddress = true);
+                    return;
+                  }
+                  Navigator.pop(dialogContext, (address, provider));
+                },
+                child: const Text('Save setup details'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (selection == null || !mounted) return;
+      setState(() {
+        _mailboxAddress = selection.$1;
+        _mailboxProvider = selection.$2;
+      });
+      _announce(
+        'Mailbox details saved for this demo. No email account is connected.',
+      );
+    } finally {
+      addressController.dispose();
+    }
+  }
+
   String _homeSummary() =>
       'Today has ${_appointments.where((a) => _sameDay(a.when, DateTime.now())).length} appointments, ${_calls.where((c) => c.callback).length} call-backs, and ${_enquiries.where((e) => e.status != 'Resolved').length} open enquiries.';
   String _calendarSummary() {
@@ -1455,7 +1559,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       'There are ${_documents.length} documents. ' +
           _documents.map((d) => d.title).join('. '),
     'Emails' =>
-      'There are ${_emails.length} saved email drafts. ' +
+      '${_mailboxAddress == null ? 'No Student Support mailbox has been selected' : 'Student Support mailbox setup is saved for $_mailboxAddress'}, but it is not connected. There are ${_emails.length} saved email drafts. ' +
           _emails
               .take(3)
               .map((e) => '${e.subject}, to ${e.recipient}')
@@ -1626,6 +1730,9 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     ),
     'Emails' => _EmailsPage(
       drafts: _emails,
+      mailboxAddress: _mailboxAddress,
+      mailboxProvider: _mailboxProvider,
+      onConnect: _showEmailSetup,
       onCreate: () => _createRecord('Email'),
       onRead: () => _speak(_pageSummary()),
     ),
@@ -1721,7 +1828,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
   }
 
   Widget _mobileShell(Color background) {
-    const destinations = ['Home', 'Calendar', 'Call log', 'More'];
+    const destinations = ['Home', 'Calendar', 'Emails', 'More'];
     final index = destinations.indexOf(_page);
     return Scaffold(
       backgroundColor: background,
@@ -1797,9 +1904,9 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
             label: 'Calendar',
           ),
           NavigationDestination(
-            icon: Icon(Icons.call_outlined),
-            selectedIcon: Icon(Icons.call_rounded),
-            label: 'Calls',
+            icon: Icon(Icons.mail_outline_rounded),
+            selectedIcon: Icon(Icons.mark_email_read_rounded),
+            label: 'Emails',
           ),
           NavigationDestination(
             icon: Icon(Icons.apps_outlined),
@@ -3748,30 +3855,130 @@ class _DocumentsPage extends StatelessWidget {
 class _EmailsPage extends StatelessWidget {
   const _EmailsPage({
     required this.drafts,
+    required this.mailboxAddress,
+    required this.mailboxProvider,
+    required this.onConnect,
     required this.onCreate,
     required this.onRead,
   });
 
   final List<_EmailDraft> drafts;
+  final String? mailboxAddress, mailboxProvider;
+  final VoidCallback onConnect;
   final VoidCallback onCreate, onRead;
 
   @override
   Widget build(BuildContext context) => _PageScroll(
     children: [
       _PageHeading(
-        title: 'Email drafts',
-        subtitle: 'Review messages drafted by Liyabona before sending them yourself.',
+        title: 'Emails',
+        subtitle: 'Set up the college Student Support mailbox and manage message drafts.',
+      ),
+      _PanelCard(
+        title: 'Student Support mailbox',
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: amber,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.link_off_rounded, size: 14, color: ink),
+              SizedBox(width: 5),
+              Text(
+                'Not connected',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: ink,
+                ),
+              ),
+            ],
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: mint,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.mark_email_unread_rounded,
+                    color: forest,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        mailboxAddress ?? 'No mailbox selected',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: ink,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        mailboxProvider == null
+                            ? 'Use the college Student Support address'
+                            : '$mailboxProvider · setup details saved for this demo',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF68776E),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Email connection needs the college to confirm its mail provider and approve secure access. No mailbox is connected in this demo.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.45,
+                color: Color(0xFF68776E),
+              ),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: onConnect,
+              icon: const Icon(Icons.settings_outlined),
+              label: Text(
+                mailboxAddress == null
+                    ? 'Set up college email'
+                    : 'Edit setup details',
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 18),
+      _SectionTitle(
+        title: 'Drafts',
         trailing: FilledButton.icon(
           onPressed: onCreate,
           icon: const Icon(Icons.edit_outlined),
           label: const Text('New draft'),
         ),
       ),
+      const SizedBox(height: 8),
       Row(
         children: [
           const Expanded(
             child: Text(
-              'Drafts stay in this demo session. Nothing is sent.',
+              'Review AI-assisted replies before sending. Drafts stay in this demo session.',
               style: TextStyle(fontSize: 11, color: Color(0xFF728078)),
             ),
           ),
@@ -4750,6 +4957,7 @@ class _MorePage extends StatelessWidget {
         subtitle: 'Explore the other areas of the demo.',
       ),
       for (final item in const [
+        ('Call log', Icons.call_outlined, 'Call history and call-backs'),
         ('Enquiries', Icons.assignment_outlined, 'Requests and follow-ups'),
         ('Notes', Icons.sticky_note_2_outlined, 'Working notes and handovers'),
         (
