@@ -202,6 +202,18 @@ void SpeechToTextWindowsPlugin::Initialize(
       return;
     }
 
+    // SAPI only queues events that the context has explicitly subscribed to.
+    // Without this, GetEvents() can keep returning no recognition results even
+    // though the microphone and dictation grammar are active.
+    const ULONGLONG recognitionEvents =
+        SPFEI(SPEI_RECOGNITION) | SPFEI(SPEI_SOUND_START) | SPFEI(SPEI_SOUND_END);
+    hr = m_cpRecoContext->SetInterest(recognitionEvents, recognitionEvents);
+    if (FAILED(hr)) {
+      std::cout << "Failed to subscribe to recognition events. HRESULT: " << std::hex << hr << std::endl;
+      result->Success(flutter::EncodableValue(false));
+      return;
+    }
+
     // Create a grammar
     hr = m_cpRecoContext->CreateGrammar(0, &m_cpRecoGrammar);
     if (FAILED(hr)) {
@@ -343,14 +355,24 @@ void SpeechToTextWindowsPlugin::Listen(
               ISpRecoResult* pResult = reinterpret_cast<ISpRecoResult*>(event.lParam);
               if (pResult) {
                 SPPHRASE* phrase = nullptr;
-                bool confident = SUCCEEDED(pResult->GetPhrase(&phrase)) && phrase;
-                if (confident) {
-                  confident = phrase->Rule.Confidence != SP_LOW_CONFIDENCE;
-                  for (ULONG i = 0; confident &&
+                bool confident = true;
+                if (SUCCEEDED(pResult->GetPhrase(&phrase)) && phrase) {
+                  const bool lowRuleConfidence =
+                      phrase->Rule.Confidence == SP_LOW_CONFIDENCE;
+                  bool allWordsLowConfidence =
+                      phrase->Rule.ulCountOfElements > 0 && phrase->pElements;
+                  for (ULONG i = 0; phrase->pElements &&
                                   i < phrase->Rule.ulCountOfElements; ++i) {
-                    confident = phrase->pElements[i].ActualConfidence !=
-                                SP_LOW_CONFIDENCE;
+                    if (phrase->pElements[i].ActualConfidence !=
+                        SP_LOW_CONFIDENCE) {
+                      allWordsLowConfidence = false;
+                      break;
+                    }
                   }
+                  // A single low-scored word should not discard an otherwise
+                  // clear sentence. Reject only when both SAPI's phrase and
+                  // every word are explicitly low-confidence.
+                  confident = !(lowRuleConfidence && allWordsLowConfidence);
                   CoTaskMemFree(phrase);
                 }
 
@@ -378,7 +400,16 @@ void SpeechToTextWindowsPlugin::Listen(
                     }
                     const bool shortControl = normalized == L"stop" ||
                                               normalized == L"cancel" ||
-                                              normalized == L"help";
+                                              normalized == L"help" ||
+                                              normalized == L"home" ||
+                                              normalized == L"calendar" ||
+                                              normalized == L"notes" ||
+                                              normalized == L"documents" ||
+                                              normalized == L"emails" ||
+                                              normalized == L"learners" ||
+                                              normalized == L"knowledge" ||
+                                              normalized == L"visitors" ||
+                                              normalized == L"tasks";
                     if (wordCount >= 2 || shortControl) {
                       SendTextRecognition(utf8Text, true);
                     }
