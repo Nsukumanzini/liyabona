@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:shared_preferences/shared_preferences.dart';
 
 const ink = Color(0xFF19352F);
 const forest = Color(0xFF17594E);
@@ -31,6 +33,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _speech = stt.SpeechToText();
   final _tts = FlutterTts();
+  Future<void> _offlineDataReady = Future<void>.value();
   bool _speechReady = false;
   bool _preferOnDeviceSpeech = true;
   String? _speechLocale;
@@ -67,6 +70,9 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
   final List<_Visitor> _visitors = [];
   final List<_ReceptionTask> _tasks = [];
   final List<_ChatLine> _chat = [];
+
+  bool get _isWindowsDesktop =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   @override
   void initState() {
@@ -224,6 +230,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         'Hello, I’m Liyabona AI. Tell me what you need. I can open a screen, capture a note, add a task, organise visitor check-in, log a call, schedule an appointment, or answer a reception question.',
       ),
     );
+    if (_isWindowsDesktop) _offlineDataReady = _loadOfflineData();
     _tts.setLanguage('en-ZA');
     _tts.setSpeechRate(.85);
     _tts.awaitSpeakCompletion(false);
@@ -243,6 +250,242 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       _ttsSpeaking = false;
       _refreshAssistantPopup();
     });
+  }
+
+  Future<void> _loadOfflineData() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final raw = preferences.getString('liyabona_offline_records_v1');
+      if (raw == null) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return;
+
+      DateTime readDate(Map<String, dynamic> value, String key) =>
+          DateTime.tryParse(value[key]?.toString() ?? '') ?? DateTime.now();
+      String readText(
+        Map<String, dynamic> value,
+        String key, [
+        String fallback = '',
+      ]) => value[key]?.toString() ?? fallback;
+      List<T> readItems<T>(String key, T Function(Map<String, dynamic>) build) {
+        final values = decoded[key];
+        if (values is! List) return <T>[];
+        return values
+            .whereType<Map>()
+            .map((item) => build(Map<String, dynamic>.from(item)))
+            .toList();
+      }
+
+      final appointments = readItems(
+        'appointments',
+        (v) => _Appointment(
+          readText(v, 'title'),
+          readText(v, 'name'),
+          readDate(v, 'when'),
+          readText(v, 'location'),
+          readText(v, 'category'),
+        ),
+      );
+      final calls = readItems(
+        'calls',
+        (v) => _Call(
+          readText(v, 'caller'),
+          readText(v, 'phone'),
+          readText(v, 'reason'),
+          v['callback'] == true,
+          readText(v, 'priority', 'Normal'),
+          readDate(v, 'when'),
+        ),
+      );
+      final notes = readItems(
+        'notes',
+        (v) => _Note(
+          readText(v, 'title'),
+          readText(v, 'body'),
+          readDate(v, 'when'),
+        ),
+      );
+      final enquiries = readItems(
+        'enquiries',
+        (v) => _Enquiry(
+          readText(v, 'name'),
+          readText(v, 'category'),
+          readText(v, 'detail'),
+          readText(v, 'status'),
+          readText(v, 'priority', 'Normal'),
+        ),
+      );
+      final documents = readItems(
+        'documents',
+        (v) => _Document(
+          readText(v, 'title'),
+          readText(v, 'summary'),
+          readDate(v, 'when'),
+        ),
+      );
+      final emails = readItems(
+        'emails',
+        (v) => _EmailDraft(
+          readText(v, 'recipient'),
+          readText(v, 'subject'),
+          readText(v, 'body'),
+          readDate(v, 'when'),
+        ),
+      );
+      final visitors = readItems(
+        'visitors',
+        (v) => _Visitor(
+          readText(v, 'name'),
+          readText(v, 'host'),
+          readText(v, 'purpose'),
+          readDate(v, 'checkedIn'),
+        )..checkedOut = DateTime.tryParse(readText(v, 'checkedOut')),
+      );
+      final tasks = readItems(
+        'tasks',
+        (v) => _ReceptionTask(
+          readText(v, 'title'),
+          readText(v, 'detail'),
+          readDate(v, 'created'),
+          v['done'] == true,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _appointments
+          ..clear()
+          ..addAll(appointments);
+        _calls
+          ..clear()
+          ..addAll(calls);
+        _notes
+          ..clear()
+          ..addAll(notes);
+        _enquiries
+          ..clear()
+          ..addAll(enquiries);
+        _documents
+          ..clear()
+          ..addAll(documents);
+        _emails
+          ..clear()
+          ..addAll(emails);
+        _visitors
+          ..clear()
+          ..addAll(visitors);
+        _tasks
+          ..clear()
+          ..addAll(tasks);
+        _mailboxAddress = decoded['mailboxAddress']?.toString();
+        _mailboxProvider = decoded['mailboxProvider']?.toString();
+      });
+    } catch (_) {
+      // Keep the app usable with its sample records if the local data is damaged.
+    }
+  }
+
+  Future<bool> _saveOfflineData() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.setString(
+        'liyabona_offline_records_v1',
+        jsonEncode({
+          'appointments': _appointments
+              .map(
+                (v) => {
+                  'title': v.title,
+                  'name': v.name,
+                  'when': v.when.toIso8601String(),
+                  'location': v.location,
+                  'category': v.category,
+                },
+              )
+              .toList(),
+          'calls': _calls
+              .map(
+                (v) => {
+                  'caller': v.caller,
+                  'phone': v.phone,
+                  'reason': v.reason,
+                  'callback': v.callback,
+                  'priority': v.priority,
+                  'when': v.when.toIso8601String(),
+                },
+              )
+              .toList(),
+          'notes': _notes
+              .map(
+                (v) => {
+                  'title': v.title,
+                  'body': v.body,
+                  'when': v.when.toIso8601String(),
+                },
+              )
+              .toList(),
+          'enquiries': _enquiries
+              .map(
+                (v) => {
+                  'name': v.name,
+                  'category': v.category,
+                  'detail': v.detail,
+                  'status': v.status,
+                  'priority': v.priority,
+                },
+              )
+              .toList(),
+          'documents': _documents
+              .map(
+                (v) => {
+                  'title': v.title,
+                  'summary': v.summary,
+                  'when': v.when.toIso8601String(),
+                },
+              )
+              .toList(),
+          'emails': _emails
+              .map(
+                (v) => {
+                  'recipient': v.recipient,
+                  'subject': v.subject,
+                  'body': v.body,
+                  'when': v.when.toIso8601String(),
+                },
+              )
+              .toList(),
+          'visitors': _visitors
+              .map(
+                (v) => {
+                  'name': v.name,
+                  'host': v.host,
+                  'purpose': v.purpose,
+                  'checkedIn': v.checkedIn.toIso8601String(),
+                  'checkedOut': v.checkedOut?.toIso8601String(),
+                },
+              )
+              .toList(),
+          'tasks': _tasks
+              .map(
+                (v) => {
+                  'title': v.title,
+                  'detail': v.detail,
+                  'created': v.created.toIso8601String(),
+                  'done': v.done,
+                },
+              )
+              .toList(),
+          'mailboxAddress': _mailboxAddress,
+          'mailboxProvider': _mailboxProvider,
+        }),
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _persistWindowsData() async {
+    if (!_isWindowsDesktop) return;
+    await _offlineDataReady;
+    await _saveOfflineData();
   }
 
   @override
@@ -543,6 +786,25 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
 
   Future<void> _askCopilot(String question) async {
     if (_assistantBusy || question.trim().isEmpty) return;
+    if (_isWindowsDesktop) {
+      await _offlineDataReady;
+      _chat.add(_ChatLine(true, question));
+      setState(() => _assistantBusy = true);
+      await _handleVoiceCommand(
+        question,
+        consultAi: false,
+        resumeVoice: false,
+        speakResponse: false,
+      );
+      final parts = _transcript.split('\n');
+      final answer = parts.length > 1
+          ? parts.skip(1).join(' ')
+          : _answerLocally(question);
+      _chat.add(_ChatLine(false, answer));
+      if (mounted) setState(() => _assistantBusy = false);
+      await _speak(answer);
+      return;
+    }
     if (_voiceSession) {
       await _speech.stop();
       _listening = false;
@@ -589,6 +851,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     }
     _preferOnDeviceSpeech = true;
     _listenFailures = 0;
+    if (_isWindowsDesktop) await _offlineDataReady;
     _speechReady = await _speech.initialize(
       onError: (error) {
         if (!mounted) return;
@@ -597,7 +860,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
             message.contains('permission') ||
             message.contains('denied') ||
             message.contains('not-allowed');
-        if (!permissionDenied && _preferOnDeviceSpeech) {
+        if (!_isWindowsDesktop && !permissionDenied && _preferOnDeviceSpeech) {
           _preferOnDeviceSpeech = false;
           _listenFailures = 0;
           _assistantError = 'No offline speech pack was found for this language. Trying the device speech service.';
@@ -613,7 +876,9 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
           _assistantError = permissionDenied
               ? 'Microphone access is blocked. Allow microphone access in your browser or device settings.'
               : stoppedAfterRetries
-              ? 'Speech recognition could not start. Check the microphone and the device speech service.'
+              ? _isWindowsDesktop
+                    ? 'Windows offline speech recognition could not start. Check Windows speech settings and microphone access.'
+                    : 'Speech recognition could not start. Check the microphone and the device speech service.'
               : 'Speech recognition stopped; Liyabona is trying to restart it.';
           _transcript = permissionDenied
               ? 'Microphone access is blocked. Allow microphone access in your browser or device settings.'
@@ -637,7 +902,9 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       },
     );
     if (!_speechReady) {
-      _assistantError = 'Speech recognition is unavailable. Check microphone permission and the device speech service.';
+      _assistantError = _isWindowsDesktop
+          ? 'Windows offline speech recognition is unavailable. Check Windows speech settings and microphone access.'
+          : 'Speech recognition is unavailable. Check microphone permission and the device speech service.';
       if (greet) await _speak('Hello, how can I help you today?');
       _refreshAssistantPopup();
       return;
@@ -658,7 +925,9 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     }
     setState(() {
       _voiceSession = true;
-      _transcript = 'Listening';
+      _transcript = _isWindowsDesktop
+          ? 'Listening offline on this computer'
+          : 'Listening';
     });
     _refreshAssistantPopup();
     if (greet) {
@@ -688,7 +957,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
           pauseFor: const Duration(seconds: 3),
           partialResults: true,
           cancelOnError: false,
-          onDevice: _preferOnDeviceSpeech,
+          onDevice: _isWindowsDesktop || _preferOnDeviceSpeech,
         ),
         onResult: (result) {
           if (!mounted) return;
@@ -904,7 +1173,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       response = 'Voice session ended.';
     } else if (command.contains('help') ||
         command.contains('what can you do')) {
-      response = 'You can say: open calendar, check call-backs, check in visitor Sam, check out Sam, add a desk task, read this screen, create a note, log a call, schedule an appointment, make a document, find a learner, or ask the copilot a question.';
+      response = 'You can say: open calendar, open emails, create a note, add a task, remind me to call someone, show my tasks, complete a task, schedule an appointment, draft an email, check in or check out a visitor, log a call, read this screen, or ask about reception hours.';
     } else if (command.contains('read this screen') ||
         command.contains('summarise this screen') ||
         command.contains('summarize this screen') ||
@@ -982,6 +1251,29 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       _go('Visitors');
       response =
           'I checked in ${visitor.name}${host.isEmpty ? '' : ' to visit ${visitor.host}'}. Remember to check them out when they leave.';
+    } else if (command.startsWith('remind me') ||
+        command.startsWith('set a reminder') ||
+        command.startsWith('create reminder') ||
+        (command.contains('reminder') && _hasCreateIntent(command))) {
+      final detail = _stripIntent(command, [
+        'remind me to',
+        'remind me',
+        'set a reminder to',
+        'set a reminder',
+        'create reminder to',
+        'create reminder',
+      ]);
+      final task = _ReceptionTask(
+        detail.isEmpty ? 'New reminder' : _titleCase(detail),
+        detail.isEmpty ? 'Reminder details to be added.' : detail,
+        DateTime.now(),
+        false,
+      );
+      _tasks.insert(0, task);
+      _go('Tasks');
+      response = detail.isEmpty
+          ? 'I added a blank reminder to your task list.'
+          : 'I saved a reminder in your task list: ${task.title}.';
     } else if (command.contains('task') && _hasCreateIntent(command)) {
       final detail = _stripIntent(command, [
         'create a task',
@@ -1018,6 +1310,12 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         _go('Tasks');
         response = 'I marked ${matches.first.title} as complete.';
       }
+    } else if (command.contains('task') || command.contains('reminder')) {
+      _go('Tasks');
+      final open = _tasks.where((task) => !task.done).toList();
+      response = open.isEmpty
+          ? 'There are no open tasks or reminders.'
+          : 'You have ${open.length} open tasks. ${open.take(5).map((task) => task.title).join('. ')}';
     } else if (command.contains('calendar') ||
         command.contains('appointments') ||
         command.contains('appointment') ||
@@ -1029,11 +1327,14 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         final name = person.isEmpty
             ? 'Walk-in learner'
             : _titleCase(
-                person.split(RegExp(r'\b(on|at|about)\b')).first.trim(),
+                person
+                    .split(RegExp(r'\b(on|at|about|today|tomorrow)\b'))
+                    .first
+                    .trim(),
               );
         final purpose = _after(command, ['about ', 'for ']);
         {
-          final at = DateTime.now().add(const Duration(days: 1));
+          final at = _parseAppointmentDate(command);
           _appointments.insert(
             0,
             _Appointment(
@@ -1045,7 +1346,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
             ),
           );
           response =
-              'I scheduled ${purpose.isEmpty ? 'a follow-up' : purpose} with $name for tomorrow at ten in the morning. ' +
+              'I scheduled ${purpose.isEmpty ? 'a follow-up' : purpose} with $name for ${_spokenDateTime(at)}. ' +
               _calendarSummary();
         }
       }
@@ -1181,6 +1482,9 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       _go('Emails');
       response =
           'I drafted an email to ${recipient.isEmpty ? 'review' : recipient} with the subject $subject. It has not been sent.';
+    } else if (command.contains('email') || command.contains('draft')) {
+      _go('Emails');
+      response = _summaryFor('Emails');
     } else if (command.contains('learner') ||
         command.contains('student') ||
         command.contains('directory')) {
@@ -1228,6 +1532,11 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       _chat.add(_ChatLine(true, question.isEmpty ? phrase : question));
       _chat.add(_ChatLine(false, response));
       _chatCount++;
+    } else if (command.contains('office') ||
+        command.contains('hours') ||
+        command.contains('where')) {
+      _go('Knowledge');
+      response = _answerLocally(phrase);
     } else if (command.contains('home') || command.contains('dashboard')) {
       _go('Home');
       response = 'You are on the overview. ' + _homeSummary();
@@ -1374,6 +1683,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     'create ',
     'make ',
     'take ',
+    'set ',
     'log ',
     'record ',
     'book ',
@@ -1511,6 +1821,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         _mailboxAddress = selection.$1;
         _mailboxProvider = selection.$2;
       });
+      await _persistWindowsData();
       _announce(
         'Mailbox details saved for this demo. No email account is connected.',
       );
@@ -1535,6 +1846,64 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
                   '${_time(item.when)}: ${item.title} with ${item.name}, ${item.location}',
             )
             .join('. ');
+  }
+
+  DateTime _parseAppointmentDate(String command) {
+    final now = DateTime.now();
+    var dayOffset = command.contains('day after tomorrow')
+        ? 2
+        : command.contains('tomorrow')
+        ? 1
+        : 0;
+    final dateMatch = RegExp(r'\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b')
+        .firstMatch(command);
+    var year = now.year;
+    var month = now.month;
+    var day = now.day + dayOffset;
+    if (dateMatch != null) {
+      final first = int.tryParse(dateMatch.group(1)!) ?? day;
+      final second = int.tryParse(dateMatch.group(2)!) ?? month;
+      final explicitYear = int.tryParse(dateMatch.group(3) ?? '');
+      day = first;
+      month = second;
+      if (explicitYear != null)
+        year = explicitYear < 100 ? 2000 + explicitYear : explicitYear;
+    }
+
+    var hour = dayOffset > 0 || dateMatch != null ? 10 : now.hour + 1;
+    var minute = 0;
+    final timeMatch = RegExp(
+      r'\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\bat\s+(\d{1,2}):(\d{2})\b',
+    ).firstMatch(command);
+    if (timeMatch != null) {
+      hour =
+          int.tryParse(timeMatch.group(1) ?? timeMatch.group(4) ?? '') ?? hour;
+      minute =
+          int.tryParse(timeMatch.group(2) ?? timeMatch.group(5) ?? '') ?? 0;
+      final meridiem = timeMatch.group(3);
+      if (meridiem == 'pm' && hour < 12) hour += 12;
+      if (meridiem == 'am' && hour == 12) hour = 0;
+    }
+    hour = hour.clamp(0, 23);
+    minute = minute.clamp(0, 59);
+    final date = DateTime(year, month, day, hour, minute);
+    return date.isBefore(now) && dateMatch == null && dayOffset == 0
+        ? date.add(const Duration(days: 1))
+        : date;
+  }
+
+  String _spokenDateTime(DateTime value) {
+    final today = DateTime.now();
+    final dateText = _sameDay(value, today)
+        ? 'today'
+        : _sameDay(value, today.add(const Duration(days: 1)))
+        ? 'tomorrow'
+        : '${value.day}/${value.month}';
+    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    final minute = value.minute == 0
+        ? ''
+        : ' ${value.minute.toString().padLeft(2, '0')}';
+    return '$dateText at $hour$minute ${value.hour < 12 ? 'AM' : 'PM'}';
   }
 
   String _pageSummary() => switch (_page) {
@@ -1689,6 +2058,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
           break;
       }
     });
+    await _persistWindowsData();
     _announce('$kind saved in this demo session.');
     await _speak('$kind saved.');
   }
@@ -1750,14 +2120,19 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     'Visitors' => _VisitorsPage(
       visitors: _visitors,
       onCreate: () => _createRecord('Visitor'),
-      onCheckout: (visitor) =>
-          setState(() => visitor.checkedOut = DateTime.now()),
+      onCheckout: (visitor) {
+        setState(() => visitor.checkedOut = DateTime.now());
+        unawaited(_persistWindowsData());
+      },
       onRead: () => _speak(_pageSummary()),
     ),
     'Tasks' => _TasksPage(
       tasks: _tasks,
       onCreate: () => _createRecord('Task'),
-      onToggle: (task) => setState(() => task.done = !task.done),
+      onToggle: (task) {
+        setState(() => task.done = !task.done);
+        unawaited(_persistWindowsData());
+      },
       onRead: () => _speak(_pageSummary()),
     ),
     _ => _MorePage(onNavigate: _go, onSpeak: () => _speak(_pageSummary())),
@@ -3226,7 +3601,7 @@ class _LocalNotice extends StatelessWidget {
         SizedBox(width: 8),
         Expanded(
           child: Text(
-            'Demo only: records stay in memory. AI requests and the current screen summary are sent through Vercel AI Gateway to Google Gemini. Use fictional information; no college systems or persistent database are connected.',
+            'Demo mode: Windows voice commands use local speech recognition, and their records are saved on this computer without AI requests. Web and mobile AI requests may send the current screen summary and conversation through Vercel AI Gateway to Google Gemini. No college systems or mailboxes are connected.',
             style: TextStyle(
               fontSize: 10,
               height: 1.45,

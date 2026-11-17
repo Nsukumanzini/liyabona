@@ -34,6 +34,24 @@ GitHub's `windows-latest` runner supplies the Windows build tools, so Visual Stu
 
 Start a voice session using **Talk to Liyabona**. Say a command, pause while the app responds, then continue speaking. Say **stop listening** to end the session, or tap **Stop voice**.
 
+### Windows offline voice
+
+On Windows, voice commands use the Windows SAPI speech recognizer and the local command handler. Voice requests do not call the online AI endpoint. Notes, tasks, calendar items, email drafts, call logs, enquiries, visitors and documents created by voice are saved in the signed-in Windows user's local app preferences and restored when Liyabona starts again. Spoken replies use an installed Windows speech voice.
+
+Try commands such as:
+
+- “Open calendar.”
+- “Schedule an appointment with Lerato tomorrow at 2 PM about registration.”
+- “Create a note that the registration forms are ready.”
+- “Add a task to prepare the visitor sign-in sheets.”
+- “Remind me to call the transport office tomorrow.”
+- “Show my tasks.”
+- “Complete task prepare the visitor sign-in sheets.”
+- “Draft an email to Amina about financial aid.”
+- “Read this screen.”
+
+The Windows speech recognizer must be available and configured on the computer, and Windows must have microphone access. No cloud AI is used for Windows voice or copilot requests. The built-in command handler understands known reception actions; it does not provide open-ended generative AI while offline.
+
 Examples:
 
 - “Check the calendar.”
@@ -57,5 +75,5 @@ Examples:
 
 ## Demo limits
 
-Names and records are fictional and held in memory for this session. AI requests use Vercel AI Gateway and Google Gemini; the current screen summary and conversation are sent with each request. No college system, email or persistent database is connected. Web speech recognition depends on browser support and network availability. Native speech recognition tries an installed on-device language pack first and may fall back to the device speech service. The microphone stays off until the user starts a voice session.
+Names and records are fictional. On Windows, voice-created records are saved locally on that computer; other demo records stay in memory. Web and mobile copilot requests use Vercel AI Gateway and Google Gemini; the current screen summary and conversation are sent with each request. No college system, email or college mailbox is connected. Web speech recognition depends on browser support and network availability. The microphone stays off until the user starts a voice session.
 
