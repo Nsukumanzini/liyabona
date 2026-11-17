@@ -23,11 +23,10 @@ Use Android Studio or Xcode to run the mobile targets, and Visual Studio with th
 
 The workflow at `.github/workflows/build-windows.yml` builds a Windows release on a GitHub-hosted Windows runner and saves `Liyabona-Windows.zip` as an Actions artifact.
 
-1. Push this project, including the `.github/workflows/build-windows.yml` file, to a GitHub repository.
-2. Open the repository on GitHub and select **Actions**. Approve Actions for the repository if GitHub asks.
-3. Select **Build Windows app**, then select **Run workflow** to start a build. Later pushes to `main` also start a build.
-4. Open the completed workflow run and download the **Liyabona-Windows** artifact.
-5. Extract the ZIP on the Windows computer and run `liyabona.exe` from the extracted folder. Keep the DLLs and data folders beside the EXE.
+1. Open this repository on GitHub and select **Actions**. Approve Actions for the repository if GitHub asks.
+2. Select **Build Windows app**, then select **Run workflow**. New pushes to `main` also start a build.
+3. Open the completed workflow run and download the **Liyabona-Windows** artifact.
+4. Extract the ZIP on the Windows computer and run `liyabona.exe` from the extracted folder. Keep the DLLs and data folders beside the EXE.
 
 GitHub's `windows-latest` runner supplies the Windows build tools, so Visual Studio does not need to be installed on your development computer. The Windows machine still needs a compatible microphone and a locally available speech-recognition language pack for on-device speech recognition. The runner builds the app; it does not test speech recognition on the target computer.
 
