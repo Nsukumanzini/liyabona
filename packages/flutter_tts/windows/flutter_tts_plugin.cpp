@@ -528,10 +528,12 @@ namespace {
 				if (SUCCEEDED(hr) && psz) {
 					wchar_t locale[LOCALE_NAME_MAX_LENGTH] = {};
 					const LCID voiceLocale = static_cast<LCID>(std::wcstoul(psz, NULL, 16));
-					if (LCIDToLocaleName(voiceLocale, locale, LOCALE_NAME_MAX_LENGTH, 0) > 0 &&
-						preferredLanguage == CW2A(locale)) {
-						pVoice->SetVoice(cpVoiceToken);
-						found = true;
+					if (LCIDToLocaleName(voiceLocale, locale, LOCALE_NAME_MAX_LENGTH, 0) > 0) {
+						CW2A localeAnsi(locale);
+						if (preferredLanguage == static_cast<LPCSTR>(localeAnsi)) {
+							pVoice->SetVoice(cpVoiceToken);
+							found = true;
+						}
 					}
 				}
 				if (psz) ::CoTaskMemFree(psz);
