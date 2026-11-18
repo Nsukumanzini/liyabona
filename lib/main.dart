@@ -37,6 +37,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   final _speech = stt.SpeechToText();
   final _audioRecorder = AudioRecorder();
   final _tts = FlutterTts();
+  final _knowledgeController = TextEditingController();
   StreamSubscription<Uint8List>? _audioSubscription;
   Timer? _audioCheckTimer;
   BytesBuilder _audioBuffer = BytesBuilder(copy: false);
@@ -49,8 +50,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   bool _finishingAudio = false;
   _AssistantResult? _pendingVoiceConfirmation;
   String? _pendingLocalVoiceCommand;
+  String? _lastMutationNotice;
   bool _awaitingSessionChoice = false;
   Future<void> _offlineDataReady = Future<void>.value();
+  Future<void> _knowledgeReady = Future<void>.value();
   bool _speechReady = false;
   bool _preferOnDeviceSpeech = true;
   String? _speechLocale;
@@ -74,6 +77,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   double? _matchConfidence;
   List<String> _pendingChoices = [];
   String _page = 'AI copilot';
+  String _knowledgeText = '';
   String _search = '';
   int _chatCount = 0;
   final List<_Appointment> _appointments = [];
@@ -248,6 +252,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       ),
     );
     if (_isWindowsDesktop) _offlineDataReady = _loadOfflineData();
+    _knowledgeReady = _loadKnowledge();
     _tts.setLanguage('en-ZA');
     _tts.setSpeechRate(.5);
     _tts.awaitSpeakCompletion(false);
@@ -267,6 +272,37 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _ttsSpeaking = false;
       _refreshAssistantPopup();
     });
+  }
+
+  Future<void> _loadKnowledge() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final value = preferences.getString('liyabona_knowledge_v1') ?? '';
+      if (!mounted) return;
+      setState(() {
+        _knowledgeText = value;
+        _knowledgeController.text = value;
+      });
+    } catch (_) {
+      // Keep the Knowledge page editable if local storage is unavailable.
+    }
+  }
+
+  Future<void> _saveKnowledge(String value) async {
+    final cleaned = value.trim();
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final saved = await preferences.setString('liyabona_knowledge_v1', cleaned);
+      if (!mounted) return;
+      setState(() => _knowledgeText = cleaned);
+      _announce(
+        saved
+            ? 'Knowledge saved on this device.'
+            : 'Could not save knowledge. Please try again.',
+      );
+    } catch (_) {
+      if (mounted) _announce('Could not save knowledge. Please try again.');
+    }
   }
 
   Future<void> _loadOfflineData() async {
@@ -513,6 +549,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     unawaited(_audioRecorder.dispose());
     _speech.stop();
     _tts.stop();
+    _knowledgeController.dispose();
     super.dispose();
   }
 
@@ -589,11 +626,86 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
   }
 
+  List<Map<String, String>> get _assistantRecords => [
+    ..._appointments.map(
+      (v) => {
+        'type': 'appointment',
+        'query': v.title,
+        'name': v.name,
+        'dateTime': v.when.toIso8601String(),
+        'location': v.location,
+        'detail': v.category,
+      },
+    ),
+    ..._calls.map(
+      (v) => {
+        'type': 'call',
+        'query': v.caller,
+        'name': v.caller,
+        'phone': v.phone,
+        'detail': v.reason,
+        'callback': v.callback.toString(),
+        'priority': v.priority,
+      },
+    ),
+    ..._notes.map(
+      (v) => {'type': 'note', 'query': v.title, 'title': v.title, 'body': v.body},
+    ),
+    ..._enquiries.map(
+      (v) => {
+        'type': 'enquiry',
+        'query': v.name,
+        'name': v.name,
+        'category': v.category,
+        'detail': v.detail,
+        'status': v.status,
+        'priority': v.priority,
+      },
+    ),
+    ..._documents.map(
+      (v) => {
+        'type': 'document',
+        'query': v.title,
+        'title': v.title,
+        'detail': v.summary,
+      },
+    ),
+    ..._emails.map(
+      (v) => {
+        'type': 'email',
+        'query': v.subject,
+        'recipient': v.recipient,
+        'subject': v.subject,
+        'body': v.body,
+      },
+    ),
+    ..._visitors.map(
+      (v) => {
+        'type': 'visitor',
+        'query': v.name,
+        'name': v.name,
+        'host': v.host,
+        'purpose': v.purpose,
+        'checkedOut': (v.checkedOut != null).toString(),
+      },
+    ),
+    ..._tasks.map(
+      (v) => {
+        'type': 'task',
+        'query': v.title,
+        'title': v.title,
+        'detail': v.detail,
+        'done': v.done.toString(),
+      },
+    ),
+  ].take(80).toList();
+
   Future<_AssistantResult?> _askModel(
     String text, {
     String? audioBase64,
   }) async {
     if (text.trim().isEmpty && audioBase64 == null) return null;
+    await _knowledgeReady;
     try {
       final history = _chat.toList();
       if (history.isNotEmpty &&
@@ -611,6 +723,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               if (audioBase64 != null) 'audio': audioBase64,
               'screen': _page,
               'summary': _pageSummary(),
+              'knowledge': _knowledgeText,
+              'records': _assistantRecords,
               'history': history
                   .skip(history.length > 6 ? history.length - 6 : 0)
                   .map(
@@ -812,10 +926,297 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         if (found.isNotEmpty) setState(() => found.first.done = true);
         _go('Tasks');
         break;
+      case 'edit_record':
+        _lastMutationNotice = _mutateRecord(f, delete: false);
+        break;
+      case 'delete_record':
+        _lastMutationNotice = _mutateRecord(f, delete: true);
+        break;
       default:
         break;
     }
+    unawaited(_persistWindowsData());
   }
+
+  String _confirmationPrompt(String phrase, _AssistantResult result) {
+    if (result.action == 'read_screen' || _isReadRequest(phrase.toLowerCase())) {
+      return 'I heard: $phrase. Do you want me to read this information? Say yes or no.';
+    }
+    final proposal = result.reply.trim();
+    return 'I heard: $phrase. ${proposal.isEmpty ? 'Do you want me to continue?' : proposal} Say yes or no.';
+  }
+
+  String _completedActionReply(_AssistantResult result) {
+    if (_lastMutationNotice != null) return _lastMutationNotice!;
+    final f = result.fields;
+    switch (result.action) {
+      case 'create_note':
+        return 'Note created${f['title']?.isNotEmpty == true ? ': ${f['title']}' : ''}.';
+      case 'create_task':
+        return 'Task created${f['title']?.isNotEmpty == true ? ': ${f['title']}' : ''}.';
+      case 'create_appointment':
+        return 'Appointment added to the calendar.';
+      case 'create_call':
+        return 'Call note saved.';
+      case 'create_enquiry':
+        return 'Enquiry recorded.';
+      case 'create_document':
+        return 'Document draft created.';
+      case 'create_email':
+        return 'Email draft created. It has not been sent.';
+      case 'visitor_checkin':
+        return 'Visitor checked in.';
+      case 'visitor_checkout':
+        return 'Visitor checked out.';
+      case 'complete_task':
+        return 'Task marked complete.';
+      case 'find_learner':
+        return 'Learner search opened.';
+      case 'read_screen':
+      case 'answer':
+        return result.reply;
+      default:
+        return result.reply;
+    }
+  }
+
+  String _mutateRecord(Map<String, String> fields, {required bool delete}) {
+    final type = fields['record_type']?.toLowerCase().trim() ?? '';
+    final query = fields['query']?.toLowerCase().trim() ?? '';
+    if (query.length < 2) return 'Please tell me which record you mean.';
+
+    bool matches(Iterable<String> values) => values.any(
+      (value) => value.toLowerCase().contains(query),
+    );
+    String value(String key, String old) =>
+        fields[key]?.trim().isNotEmpty == true ? fields[key]!.trim() : old;
+    DateTime? editedDate() {
+      final raw = fields['dateTime']?.trim();
+      if (raw == null || raw.isEmpty) return null;
+      return DateTime.tryParse(raw);
+    }
+    bool didEdit = false;
+    String? changed;
+
+    switch (type) {
+      case 'note':
+      case 'notes':
+        final indexes = [
+          for (var i = 0; i < _notes.length; i++)
+            if (matches([_notes[i].title, _notes[i].body])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('note', indexes.length);
+        final i = indexes.single;
+        final old = _notes[i];
+        if (delete) {
+          _notes.removeAt(i);
+          changed = old.title;
+        } else {
+          final title = value('title', old.title);
+          final body = value('body', old.body);
+          didEdit = title != old.title || body != old.body;
+          if (!didEdit) return 'Tell me what you would like changed in that note.';
+          _notes[i] = _Note(title, body, old.when);
+          changed = title;
+        }
+        _go('Notes');
+        break;
+      case 'task':
+      case 'tasks':
+        final indexes = [
+          for (var i = 0; i < _tasks.length; i++)
+            if (matches([_tasks[i].title, _tasks[i].detail])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('task', indexes.length);
+        final i = indexes.single;
+        final old = _tasks[i];
+        if (delete) {
+          _tasks.removeAt(i);
+          changed = old.title;
+        } else {
+          final title = value('title', old.title);
+          final detail = value('detail', old.detail);
+          didEdit = title != old.title || detail != old.detail;
+          if (!didEdit) return 'Tell me what you would like changed in that task.';
+          _tasks[i] = _ReceptionTask(title, detail, old.created, old.done);
+          changed = title;
+        }
+        _go('Tasks');
+        break;
+      case 'appointment':
+      case 'appointments':
+        final indexes = [
+          for (var i = 0; i < _appointments.length; i++)
+            if (matches([
+              _appointments[i].title,
+              _appointments[i].name,
+              _appointments[i].category,
+            ])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('appointment', indexes.length);
+        final i = indexes.single;
+        final old = _appointments[i];
+        if (delete) {
+          _appointments.removeAt(i);
+          changed = old.title;
+        } else {
+          final title = value('title', old.title);
+          final name = value('name', old.name);
+          final date = editedDate();
+          if (fields['dateTime']?.trim().isNotEmpty == true && date == null) {
+            return 'I could not understand the new date and time.';
+          }
+          final location = value('location', old.location);
+          final detail = value('detail', old.category);
+          didEdit = title != old.title || name != old.name ||
+              (date != null && date != old.when) || location != old.location ||
+              detail != old.category;
+          if (!didEdit) return 'Tell me what you would like changed in that appointment.';
+          _appointments[i] = _Appointment(title, name, date ?? old.when, location, detail);
+          changed = title;
+        }
+        _go('Calendar');
+        break;
+      case 'call':
+      case 'calls':
+        final indexes = [
+          for (var i = 0; i < _calls.length; i++)
+            if (matches([_calls[i].caller, _calls[i].reason, _calls[i].phone])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('call', indexes.length);
+        final i = indexes.single;
+        final old = _calls[i];
+        if (delete) {
+          _calls.removeAt(i);
+          changed = old.caller;
+        } else {
+          final name = value('name', old.caller);
+          final phone = value('phone', old.phone);
+          final detail = value('detail', old.reason);
+          final callback = fields.containsKey('callback')
+              ? fields['callback']!.toLowerCase() == 'true'
+              : old.callback;
+          final priority = value('priority', old.priority);
+          didEdit = name != old.caller || phone != old.phone || detail != old.reason ||
+              callback != old.callback || priority != old.priority;
+          if (!didEdit) return 'Tell me what you would like changed in that call record.';
+          _calls[i] = _Call(name, phone, detail, callback, priority, old.when);
+          changed = name;
+        }
+        _go('Call log');
+        break;
+      case 'enquiry':
+      case 'enquiries':
+        final indexes = [
+          for (var i = 0; i < _enquiries.length; i++)
+            if (matches([_enquiries[i].name, _enquiries[i].category, _enquiries[i].detail])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('enquiry', indexes.length);
+        final i = indexes.single;
+        final old = _enquiries[i];
+        if (delete) {
+          _enquiries.removeAt(i);
+          changed = old.name;
+        } else {
+          final name = value('name', old.name);
+          final category = value('category', old.category);
+          final detail = value('detail', old.detail);
+          final status = value('status', old.status);
+          final priority = value('priority', old.priority);
+          didEdit = name != old.name || category != old.category || detail != old.detail ||
+              status != old.status || priority != old.priority;
+          if (!didEdit) return 'Tell me what you would like changed in that enquiry.';
+          _enquiries[i] = _Enquiry(name, category, detail, status, priority);
+          changed = name;
+        }
+        _go('Enquiries');
+        break;
+      case 'document':
+      case 'documents':
+        final indexes = [
+          for (var i = 0; i < _documents.length; i++)
+            if (matches([_documents[i].title, _documents[i].summary])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('document', indexes.length);
+        final i = indexes.single;
+        final old = _documents[i];
+        if (delete) {
+          _documents.removeAt(i);
+          changed = old.title;
+        } else {
+          final title = value('title', old.title);
+          final detail = value('detail', old.summary);
+          didEdit = title != old.title || detail != old.summary;
+          if (!didEdit) return 'Tell me what you would like changed in that document.';
+          _documents[i] = _Document(title, detail, old.when);
+          changed = title;
+        }
+        _go('Documents');
+        break;
+      case 'email':
+      case 'email draft':
+      case 'emails':
+        final indexes = [
+          for (var i = 0; i < _emails.length; i++)
+            if (matches([_emails[i].subject, _emails[i].recipient, _emails[i].body])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('email draft', indexes.length);
+        final i = indexes.single;
+        final old = _emails[i];
+        if (delete) {
+          _emails.removeAt(i);
+          changed = old.subject;
+        } else {
+          final recipient = value('recipient', old.recipient);
+          final subject = value('subject', old.subject);
+          final body = value('body', old.body);
+          didEdit = recipient != old.recipient || subject != old.subject || body != old.body;
+          if (!didEdit) return 'Tell me what you would like changed in that email draft.';
+          _emails[i] = _EmailDraft(recipient, subject, body, old.when);
+          changed = subject;
+        }
+        _go('Emails');
+        break;
+      case 'visitor':
+      case 'visitors':
+        final indexes = [
+          for (var i = 0; i < _visitors.length; i++)
+            if (matches([_visitors[i].name, _visitors[i].host, _visitors[i].purpose])) i,
+        ];
+        if (indexes.length != 1) return _notUniqueNotice('visitor record', indexes.length);
+        final i = indexes.single;
+        final old = _visitors[i];
+        if (delete) {
+          _visitors.removeAt(i);
+          changed = old.name;
+        } else {
+          final name = value('name', old.name);
+          final host = value('host', old.host);
+          final purpose = value('purpose', old.purpose);
+          didEdit = name != old.name || host != old.host || purpose != old.purpose;
+          if (!didEdit) return 'Tell me what you would like changed in that visitor record.';
+          final replacement = _Visitor(name, host, purpose, old.checkedIn)
+            ..checkedOut = old.checkedOut;
+          _visitors[i] = replacement;
+          changed = name;
+        }
+        _go('Visitors');
+        break;
+      default:
+        return 'I could not identify the type of record to change.';
+    }
+
+    setState(() {});
+    unawaited(_persistWindowsData());
+    return delete
+        ? 'Deleted $changed.'
+        : 'Updated $changed.';
+  }
+
+  String _notUniqueNotice(String type, int count) => switch (count) {
+    0 => 'I could not find that $type. Nothing was changed.',
+    _ => 'I found more than one matching $type. Please say its exact name or title.',
+  };
 
   Future<void> _askCopilot(String question) async {
     if (_assistantBusy || question.trim().isEmpty) return;
@@ -837,25 +1238,71 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     final result = await _askModel(question);
     String answer;
     if (result != null) {
-      _applyAssistantAction(result);
-      answer = result.reply;
+      if (_requiresAssistantConfirmation(result.action, question.toLowerCase())) {
+        final approved = await _confirmByTap(
+          _confirmationPrompt(question, result),
+        );
+        if (approved) {
+          _lastMutationNotice = null;
+          _applyAssistantAction(result);
+          answer = _lastMutationNotice ?? 'Done. ${result.reply}';
+        } else {
+          answer = 'Okay. I did not make that change.';
+        }
+      } else {
+        _applyAssistantAction(result);
+        answer = result.action == 'navigate'
+            ? 'Opening ${result.destination}.'
+            : result.reply;
+      }
     } else {
-      await _handleVoiceCommand(
-        question,
-        consultAi: false,
-        resumeVoice: false,
-        speakResponse: false,
-      );
-      final transcript = _transcript.split('\n');
-      answer =
-          'Online AI is temporarily unavailable. I used the built-in command helper instead. ${transcript.length > 1 ? transcript.skip(1).join(' ') : _answerLocally(question)}';
+      final approved = !_requiresLocalConfirmation(question.toLowerCase()) ||
+          await _confirmByTap(
+            'This request will read or change information. Do you want me to continue?',
+          );
+      if (approved) {
+        await _handleVoiceCommand(
+          question,
+          consultAi: false,
+          resumeVoice: false,
+          speakResponse: false,
+          skipLocalConfirmation: true,
+        );
+        final transcript = _transcript.split('\n');
+        answer =
+            'Online AI is temporarily unavailable. I used the built-in command helper instead. ${transcript.length > 1 ? transcript.skip(1).join(' ') : _answerLocally(question)}';
+      } else {
+        answer = 'Okay. I did not make that change.';
+      }
     }
     _chat.add(_ChatLine(false, answer));
     if (mounted) setState(() => _assistantBusy = false);
     _refreshAssistantPopup();
     await _speak(answer);
+    await _waitForSpeechToFinish();
     if (resumeVoice && _voiceSession && mounted) await _listenOnce();
   }
+
+  Future<bool> _confirmByTap(String details) async =>
+      await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Would you like me to do this?'),
+          content: Text(details),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Yes'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
 
   Future<void> _toggleVoice({bool greet = false}) async {
     if (_voiceSession || _listening) {
@@ -1343,17 +1790,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       return;
     }
     if (_awaitingSessionChoice) {
-      if (RegExp(r'^(continue|continue listening|yes|keep listening|go ahead)[.! ]*$')
-          .hasMatch(command)) {
+      if (_isYesAnswer(command)) {
         _awaitingSessionChoice = false;
         _processing = false;
-        _transcript = 'Okay. I will continue listening.';
+        _transcript = 'Okay. I will keep listening.';
         _refreshAssistantPopup();
-        if (speakResponse) await _speak('Okay. I will continue listening.');
+        if (speakResponse) await _speak('Okay. I will keep listening.');
         await _waitForSpeechToFinish();
         if (_voiceSession && mounted) await _listenOnce();
-      } else if (RegExp(r'^(stop|stop listening|no|that is all|that is all for now)[.! ]*$')
-          .hasMatch(command)) {
+      } else if (_isNoAnswer(command)) {
         _awaitingSessionChoice = false;
         _voiceSession = false;
         _processing = false;
@@ -1371,15 +1816,16 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         'I heard $phrase. Say help to hear some commands I understand.';
     final pendingConfirmation = _pendingVoiceConfirmation;
     if (pendingConfirmation != null) {
-      if (RegExp(r'^(confirm|yes|do it|go ahead)[.! ]*$').hasMatch(command)) {
+      if (_isYesAnswer(command)) {
         _pendingVoiceConfirmation = null;
+        _lastMutationNotice = null;
         _applyAssistantAction(pendingConfirmation);
-        response = 'Confirmed. ${pendingConfirmation.reply}';
-      } else if (RegExp(r'^(cancel|no|never mind)[.! ]*$').hasMatch(command)) {
+        response = _completedActionReply(pendingConfirmation);
+      } else if (_isNoAnswer(command)) {
         _pendingVoiceConfirmation = null;
-        response = 'Cancelled. I did not make that change.';
+        response = 'Okay. I did not make that change.';
       } else {
-        response = 'Please say confirm to continue or cancel to leave it unchanged.';
+        response = 'Please say yes to continue or no to leave it unchanged.';
       }
       _chat.add(_ChatLine(true, phrase));
       _chat.add(_ChatLine(false, response));
@@ -1399,7 +1845,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
     final pendingLocalCommand = _pendingLocalVoiceCommand;
     if (pendingLocalCommand != null) {
-      if (RegExp(r'^(confirm|yes|do it|go ahead)[.! ]*$').hasMatch(command)) {
+      if (_isYesAnswer(command)) {
         _pendingLocalVoiceCommand = null;
         await _handleVoiceCommand(
           pendingLocalCommand,
@@ -1413,11 +1859,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             ? localLines.skip(1).join(' ')
             : 'Done.';
         response = 'Confirmed. $response';
-      } else if (RegExp(r'^(cancel|no|never mind)[.! ]*$').hasMatch(command)) {
+      } else if (_isNoAnswer(command)) {
         _pendingLocalVoiceCommand = null;
-        response = 'Cancelled. I did not make that change.';
+        response = 'Okay. I did not make that change.';
       } else {
-        response = 'Please say confirm to continue or cancel to leave it unchanged.';
+        response = 'Please say yes to continue or no to leave it unchanged.';
         if (mounted) setState(() => _transcript = response);
         _refreshAssistantPopup();
         if (speakResponse) await _speak(response);
@@ -1446,8 +1892,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       if (result != null &&
           _requiresAssistantConfirmation(result.action, command)) {
         _pendingVoiceConfirmation = result;
-        final confirmation =
-            'I understood your request as: $phrase. Say confirm to proceed or cancel to leave everything unchanged.';
+        final confirmation = _confirmationPrompt(phrase, result);
         _chat.add(_ChatLine(true, phrase));
         _chat.add(_ChatLine(false, confirmation));
         if (mounted) {
@@ -1521,7 +1966,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         if (_requiresLocalConfirmation(command)) {
           _pendingLocalVoiceCommand = phrase;
           const confirmation =
-              'This request will read or change information. Say confirm to continue or cancel to leave it unchanged.';
+              'This request will read or change information. Do you want me to continue? Say yes or no.';
           _chat.add(_ChatLine(true, phrase));
           _chat.add(_ChatLine(false, confirmation));
           if (mounted) setState(() => _transcript = '“$phrase”\n$confirmation');
@@ -1570,7 +2015,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (!skipLocalConfirmation && _requiresLocalConfirmation(command)) {
       _pendingLocalVoiceCommand = phrase;
       const confirmation =
-          'This request will read or change information. Say confirm to continue or cancel to leave it unchanged.';
+          'This request will read or change information. Do you want me to continue? Say yes or no.';
       _chat.add(_ChatLine(true, phrase));
       _chat.add(_ChatLine(false, confirmation));
       if (mounted) setState(() => _transcript = '“$phrase”\n$confirmation');
@@ -1606,7 +2051,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       response = 'Voice session ended.';
     } else if (command.contains('help') ||
         command.contains('what can you do')) {
-      response = 'You can say: open calendar, open emails, create a note, add a task, remind me to call someone, show my tasks, complete a task, schedule an appointment, draft an email, check in or check out a visitor, log a call, read this screen, or ask about reception hours.';
+      response = 'You can say: open a screen, create a note or task, edit or delete a saved record, schedule an appointment, draft an email, check in or check out a visitor, read this screen, or ask a reception question. I will ask yes or no before I read or change information.';
     } else if (command.contains('read this screen') ||
         command.contains('summarise this screen') ||
         command.contains('summarize this screen') ||
@@ -1633,6 +2078,34 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         response =
             'I heard “$phrase”, but I could not match it to a screen. Say help to hear available screens.';
       }
+    } else if (RegExp(
+      r'^(?:delete|remove)\s+(?:the\s+)?(email draft|appointments?|notes?|tasks?|calls?|enquiries?|documents?|emails?|visitors?)\s+(.+)$',
+    ).hasMatch(command)) {
+      final match = RegExp(
+        r'^(?:delete|remove)\s+(?:the\s+)?(email draft|appointments?|notes?|tasks?|calls?|enquiries?|documents?|emails?|visitors?)\s+(.+)$',
+      ).firstMatch(command)!;
+      final target = match.group(2)!.replaceFirst(
+        RegExp(r'^(?:called|named|about)\s+'),
+        '',
+      );
+      response = _lastMutationNotice = _mutateRecord(
+        {'record_type': match.group(1)!, 'query': target},
+        delete: true,
+      );
+    } else if (RegExp(
+      r'^(?:edit|update|change)\s+(?:the\s+)?(email draft|appointments?|notes?|tasks?|calls?|enquiries?|documents?|emails?|visitors?)\s+(.+?)\s+(title|body|detail|name|date time|location|phone|priority|status|category|recipient|subject|host|purpose)\s+to\s+(.+)$',
+    ).hasMatch(command)) {
+      final match = RegExp(
+        r'^(?:edit|update|change)\s+(?:the\s+)?(email draft|appointments?|notes?|tasks?|calls?|enquiries?|documents?|emails?|visitors?)\s+(.+?)\s+(title|body|detail|name|date time|location|phone|priority|status|category|recipient|subject|host|purpose)\s+to\s+(.+)$',
+      ).firstMatch(command)!;
+      final field = match.group(3) == 'date time'
+          ? 'dateTime'
+          : match.group(3)!.replaceAll(' ', '');
+      response = _lastMutationNotice = _mutateRecord({
+        'record_type': match.group(1)!,
+        'query': match.group(2)!,
+        field: _cleanStart(match.group(4)!),
+      }, delete: false);
     } else if (command.startsWith('check out ') ||
         command.startsWith('sign out visitor')) {
       final person = _stripIntent(command, [
@@ -2005,6 +2478,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       (action != 'navigate' && action != 'answer' && action != 'clarify') ||
       _isReadRequest(command);
 
+  bool _isYesAnswer(String command) =>
+      RegExp(r'^(yes|yeah|yep|ja)[.! ]*$').hasMatch(command);
+
+  bool _isNoAnswer(String command) =>
+      RegExp(r'^(no|nope|nah)[.! ]*$').hasMatch(command);
+
   bool _isReadRequest(String command) =>
       RegExp(
         r'^(read|summari[sz]e|tell me|show me|list|find|search|look up|how many|what is|what are|who is|where is|when is|which)\b',
@@ -2026,7 +2505,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   Future<void> _promptSessionChoice({bool speakResponse = true}) async {
     if (!_voiceSession || !mounted) return;
     const prompt =
-        'Would you like me to continue listening? Say continue or stop.';
+        'Would you like me to keep listening? Say yes or no.';
     await _waitForSpeechToFinish();
     _awaitingSessionChoice = true;
     _processing = false;
@@ -2572,7 +3051,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       onRead: () => _speak(_pageSummary()),
     ),
     'Learners' => _LearnersPage(search: _search, onSpeak: (s) => _speak(s)),
-    'Knowledge' => const _KnowledgePage(),
+    'Knowledge' => _KnowledgePage(
+      controller: _knowledgeController,
+      onSave: _saveKnowledge,
+    ),
     'AI copilot' => _CopilotPage(
       chat: _chat,
       onAsk: _askCopilot,
@@ -5105,42 +5587,73 @@ class _LearnersPageState extends State<_LearnersPage> {
   }
 }
 
-class _KnowledgePage extends StatelessWidget {
-  const _KnowledgePage();
+class _KnowledgePage extends StatefulWidget {
+  const _KnowledgePage({required this.controller, required this.onSave});
+  final TextEditingController controller;
+  final Future<void> Function(String) onSave;
+
   @override
-  Widget build(BuildContext context) => const _PageScroll(
+  State<_KnowledgePage> createState() => _KnowledgePageState();
+}
+
+class _KnowledgePageState extends State<_KnowledgePage> {
+  bool _saving = false;
+
+  @override
+  Widget build(BuildContext context) => _PageScroll(
     children: [
-      _PageHeading(
+      const _PageHeading(
         title: 'Reception knowledge',
-        subtitle: 'A quick reference for common campus questions. Confirm current procedures with Student Support.',
+        subtitle: 'Add information that helps Liyabona understand your work and answer consistently.',
       ),
-      _KnowledgeCard(
-        icon: Icons.access_time_rounded,
-        title: 'Office hours',
-        body: 'Monday to Friday, 08:00–16:00. Closed on public holidays.',
+      const SizedBox(height: 12),
+      TextField(
+        controller: widget.controller,
+        minLines: 8,
+        maxLines: 18,
+        maxLength: 5000,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: const InputDecoration(
+          labelText: 'Information for Liyabona',
+          hintText: 'Type or paste helpful information here. For example:\n• My role and preferred name\n• Confirmed reception hours and campus directions\n• Common terms and the processes I follow\n• Accessibility or communication preferences',
+          alignLabelWithHint: true,
+          border: OutlineInputBorder(),
+          filled: true,
+          fillColor: Colors.white,
+        ),
       ),
-      SizedBox(height: 10),
-      _KnowledgeCard(
-        icon: Icons.location_on_outlined,
-        title: 'Find Student Support',
-        body: 'Main block, ground floor, next to the library. Ask reception if you need directions.',
+      const SizedBox(height: 10),
+      const Card(
+        child: Padding(
+          padding: EdgeInsets.all(14),
+          child: Text(
+            'This information is saved on this device. When you ask Liyabona AI for help, this knowledge and saved Liyabona records are sent to Gemini with your request. Do not paste passwords or confidential learner information. Mark campus procedures as confirmed only when Student Support has approved them.',
+          ),
+        ),
       ),
-      SizedBox(height: 10),
-      _KnowledgeCard(
-        icon: Icons.assignment_outlined,
-        title: 'Learner support requests',
-        body: 'Record the learner’s request, preferred contact method and any agreed follow-up. Only collect details needed to assist.',
+      const SizedBox(height: 14),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.icon(
+          onPressed: _saving ? null : _save,
+          icon: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save_outlined),
+          label: Text(_saving ? 'Saving…' : 'Save knowledge'),
+        ),
       ),
-      SizedBox(height: 10),
-      _KnowledgeCard(
-        icon: Icons.accessible_forward_rounded,
-        title: 'Accessibility support',
-        body: 'Ask the learner what support works best for them. Confirm accessible routes and arrange a private meeting when requested.',
-      ),
-      SizedBox(height: 18),
-      _LocalNotice(),
     ],
   );
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    await widget.onSave(widget.controller.text);
+    if (mounted) setState(() => _saving = false);
+  }
 }
 
 class _KnowledgeCard extends StatelessWidget {
@@ -6272,5 +6785,3 @@ String _weekday(DateTime d) => const [
   'Thursday',
   'Friday',
   'Saturday',
-  'Sunday',
-][d.weekday - 1];

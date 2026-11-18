@@ -42,9 +42,9 @@ The GitHub runner supplies the Windows build tools, so Visual Studio is not need
 
 ## Voice commands
 
-Start a voice session using **Talk to Liyabona**. After each request, Liyabona asks whether to continue listening; say **continue** or **stop**. Opening a screen happens immediately. Before reading information or creating, editing, or deleting anything, Liyabona asks you to say **confirm** or **cancel**. Say **stop listening** at any time to end the session, or choose **Stop voice**.
+Start a voice session using **Talk to Liyabona**. After each request, Liyabona asks whether to keep listening; say **yes** or **no**. Opening a screen happens immediately. Before reading information or creating, editing, or deleting a record, Liyabona asks for **yes** or **no** first. Say **stop listening** at any time to end the session, or choose **Stop voice**.
 
-Online voice recognition sends a short recording to Gemini, which transcribes English (South Africa) and interprets the command in one request. If the online service is unreachable, Windows uses its installed speech recognizer. Voice-created notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage. Voice actions that read or change information require confirmation before Liyabona performs them.
+Online voice recognition sends a short recording to Gemini, which transcribes English (South Africa) and interprets the command in one request. If the online service is unreachable, Windows uses its installed speech recognizer. Voice-created, edited and deleted notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage. The Knowledge screen lets the receptionist type or paste personal preferences and helpful work information. Saved Knowledge is sent to Gemini with an AI request; do not enter passwords or confidential learner details.
 
 Examples:
 
@@ -57,5 +57,8 @@ Examples:
 - “Complete task prepare the visitor sign-in sheets.”
 - “Draft an email to Amina about financial aid.”
 - “Read this screen.”
+- “Edit the task called prepare visitor sheets and change the detail to print 20 copies.”
+- “Delete the note called registration forms.”
+- Answer **yes** or **no** when Liyabona asks to continue listening or approve a change.
 
 The app keeps the microphone off until a voice session is started. Voice commands are processed online when a connection is available, with device speech recognition as the fallback.
