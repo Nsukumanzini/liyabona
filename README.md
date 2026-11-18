@@ -6,9 +6,9 @@ The workspace includes a calendar, learner enquiries, notes, documents, email dr
 
 ## AI service setup
 
-Liyabona is configured to use Google Gemini through Vercel AI Gateway. Windows speech recognition runs on the computer, then the recognized request and screen context are sent to the AI service when a network connection is available. Built-in reception commands remain available if the AI service cannot respond.
+Liyabona sends AI requests to Google's Gemini API through a small Vercel server endpoint. Windows speech recognition runs on the computer; recognized requests and screen context are sent to Google when a network connection is available. Built-in reception commands remain available if the AI service cannot respond.
 
-The current Vercel endpoint is returning `403 customer_verification_required`. To enable AI responses, the Vercel account owner must complete AI Gateway verification and add a valid payment method. Vercel deployments use OIDC authentication; no AI key belongs in the Flutter app. Set a spend limit before enabling regular use. Google Gemini requests include the recognized text, recent conversation and current screen summary, so confirm the college's data-handling requirements before entering learner or staff information.
+To enable AI replies, create a Gemini API key in Google AI Studio and add it to the Vercel project as the `GEMINI_API_KEY` environment variable, then redeploy the Vercel project. Keep the key on Vercel; never put it in Flutter or GitHub. Google lists a free tier for Gemini 2.5 Flash-Lite subject to usage limits. Google may use data sent through its free tier to improve its products. Confirm the college's data-handling requirements before entering learner or staff information.
 
 Email drafts can be prepared and reviewed in Liyabona. Sending or receiving college email requires Student Support's mailbox provider and secure access to be approved and configured by college IT.
 
