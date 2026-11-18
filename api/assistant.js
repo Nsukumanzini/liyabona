@@ -1,4 +1,4 @@
-const MODEL = 'gemini-2.5-flash-lite';
+const MODEL = 'gemini-3.5-flash-lite';
 const recentRequests = new Map();
 const allowedActions = new Set([
   'navigate', 'read_screen', 'create_note', 'create_task', 'visitor_checkin',
