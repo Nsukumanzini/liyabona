@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#F5F7F5",
     "theme_color": "#17594E",
-    "description": "Accessible voice-first student support reception demo.",
+    "description": "Accessible voice-first reception workspace for TVET student support.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
