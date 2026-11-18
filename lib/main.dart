@@ -1469,8 +1469,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           result.action != 'answer' &&
           result.action != 'clarify') {
         _applyAssistantAction(result);
+        final actionReply = result.action == 'navigate'
+            ? 'Opening ${result.destination}.'
+            : result.reply;
         _chat.add(_ChatLine(true, phrase));
-        _chat.add(_ChatLine(false, result.reply));
+        _chat.add(_ChatLine(false, actionReply));
         _pendingChoices = [];
         _interpretation = result.action == 'navigate'
             ? 'Opening ${result.destination}'
@@ -1480,12 +1483,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _matchConfidence = null;
         if (mounted) {
           setState(() {
-            _transcript = '“$phrase”\n${result.reply}';
+            _transcript = '“$phrase”\n$actionReply';
             _listening = false;
           });
         }
         _refreshAssistantPopup();
-        if (speakResponse) await _speak(result.reply);
+        if (speakResponse) await _speak(actionReply);
         _processing = false;
         _refreshAssistantPopup();
         if (resumeVoice && _voiceSession && mounted) {
@@ -1593,7 +1596,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _pendingChoices = [];
         _interpretation = 'Opening $selection';
         _matchConfidence = .99;
-        response = 'Okay, opening $selection. ${_summaryFor(selection)}';
+        response = 'Okay, opening $selection.';
       }
     } else if (command.contains('stop listening') ||
         command.contains('stop voice') ||
@@ -1623,7 +1626,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _interpretation = 'Opening $destination';
         _matchConfidence = match.confidence;
         response =
-            'I understood that as $destination. ${_summaryFor(destination)}';
+            'I understood that as $destination. Opening it now.';
       } else {
         _interpretation = 'I could not match that to a screen';
         _matchConfidence = .2;
@@ -2014,7 +2017,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           r'\b(create|add|save|draft|schedule|set|check in|check out|complete|finish|edit|update|change|delete|remove|cancel)\b',
         ).hasMatch(command);
     final reading = RegExp(
-      r'\b(read|summari[sz]e|tell me|list|find|search|look up|how many|what is in|who is|show me)\b',
+      r'\b(read|summari[sz]e|tell me|list|find|search|look up|how many|what is in|what time|who is|where is|when is|show me)\b',
     ).hasMatch(command) ||
         command == 'read screen';
     return mutating || reading;
@@ -6268,6 +6271,3 @@ String _weekday(DateTime d) => const [
   'Wednesday',
   'Thursday',
   'Friday',
-  'Saturday',
-  'Sunday',
-][d.weekday - 1];
