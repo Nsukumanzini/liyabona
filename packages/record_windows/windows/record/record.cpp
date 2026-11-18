@@ -134,7 +134,7 @@ namespace record_windows
 			// Windows calls these on its notification thread; the dispatcher stops before this recorder dies.
 			auto onRouteLost = [this, takeId, dispatcher = m_dispatcher](const std::wstring& endpointId) {
 				// A report this late may belong to a take that already ended.
-				dispatcher->Post([this, takeId, lostId = Utf8FromUtf16(endpointId.c_str())] {
+				dispatcher->Post([this, takeId, lostId = RecordUtf8FromUtf16(endpointId.c_str())] {
 					if (takeId == m_takeId) OnDeviceLost(lostId);
 				});
 			};

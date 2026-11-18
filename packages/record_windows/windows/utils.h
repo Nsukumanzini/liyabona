@@ -41,7 +41,7 @@ template <class T> inline void SafeRelease(T*& pT)
 	}
 }
 
-inline std::string Utf8FromUtf16(const wchar_t* utf16_string) {
+inline std::string RecordUtf8FromUtf16(const wchar_t* utf16_string) {
 	if (!utf16_string) return {};
 
 	int len = static_cast<int>(wcslen(utf16_string));

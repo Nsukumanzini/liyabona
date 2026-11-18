@@ -20,7 +20,7 @@ namespace record_windows {
 		}
 
 		_com_error err(hr);
-		std::string errorText = Utf8FromUtf16(err.ErrorMessage());
+		std::string errorText = RecordUtf8FromUtf16(err.ErrorMessage());
 
 		char code[16];
 		snprintf(code, sizeof(code), "0x%08X", static_cast<unsigned>(hr));
@@ -206,7 +206,7 @@ namespace record_windows {
 				if (!*alive) return;
 				if (SUCCEEDED(r.hr))
 				{
-					shared->Success(r.path.empty() ? EncodableValue() : EncodableValue(Utf8FromUtf16(r.path.c_str())));
+					shared->Success(r.path.empty() ? EncodableValue() : EncodableValue(RecordUtf8FromUtf16(r.path.c_str())));
 				}
 				else {
 					ErrorFromHR(r.hr, *shared);

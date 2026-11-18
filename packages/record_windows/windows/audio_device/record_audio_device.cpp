@@ -168,7 +168,7 @@ HRESULT ListInputDevices(flutter::EncodableList& devices)
 				pProps->GetValue(PKEY_Device_FriendlyName, &varName);
 				pProps->GetValue(kAudioEngineDeviceFormat, &varFormat);
 
-				std::string label = (varName.vt == VT_LPWSTR) ? Utf8FromUtf16(varName.pwszVal) : "";
+				std::string label = (varName.vt == VT_LPWSTR) ? RecordUtf8FromUtf16(varName.pwszVal) : "";
 				std::string type  = GetDeviceTypeViaTopology(pDevice);
 
 				flutter::EncodableList rateList;
@@ -180,7 +180,7 @@ HRESULT ListInputDevices(flutter::EncodableList& devices)
 				}
 
 				devices.push_back(flutter::EncodableMap({
-					{flutter::EncodableValue("id"),          flutter::EncodableValue(Utf8FromUtf16(pwszId))},
+					{flutter::EncodableValue("id"),          flutter::EncodableValue(RecordUtf8FromUtf16(pwszId))},
 					{flutter::EncodableValue("label"),       flutter::EncodableValue(label)},
 					{flutter::EncodableValue("type"),        flutter::EncodableValue(type)},
 					{flutter::EncodableValue("sampleRates"), flutter::EncodableValue(std::move(rateList))},
@@ -275,7 +275,7 @@ HRESULT GetDefaultInputDeviceId(std::string& deviceId)
 		hr = pDevice->GetId(&pwszId);
 
 	if (SUCCEEDED(hr))
-		deviceId = Utf8FromUtf16(pwszId);
+		deviceId = RecordUtf8FromUtf16(pwszId);
 
 	if (pwszId) CoTaskMemFree(pwszId);
 	SafeRelease(&pDevice);

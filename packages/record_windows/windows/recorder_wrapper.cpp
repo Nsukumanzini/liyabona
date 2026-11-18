@@ -46,7 +46,7 @@ namespace record_windows
 			EncodableMap map{
 				{ EncodableValue("state"), EncodableValue(static_cast<int>(RecordState::stop)) },
 				{ EncodableValue("reason"), EncodableValue(reasons[static_cast<int>(stop.reason)]) },
-				{ EncodableValue("path"), stop.path.empty() ? EncodableValue() : EncodableValue(Utf8FromUtf16(stop.path.c_str())) },
+				{ EncodableValue("path"), stop.path.empty() ? EncodableValue() : EncodableValue(RecordUtf8FromUtf16(stop.path.c_str())) },
 				{ EncodableValue("error"), stop.error.empty() ? EncodableValue() : EncodableValue(stop.error) },
 			};
 			m_platform.Post([alive, stateHandler, recordHandler, map = std::move(map)]() mutable {
