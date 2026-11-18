@@ -1,5 +1,59 @@
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const PREFERRED_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const recentRequests = new Map();
+let modelCache = '';
+let modelCacheExpiresAt = 0;
+
+async function discoverGeminiModel(apiKey, { refresh = false, exclude = [] } = {}) {
+  if (!refresh && modelCache && Date.now() < modelCacheExpiresAt && !exclude.includes(modelCache)) {
+    return { model: modelCache };
+  }
+
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100', {
+    headers: { 'x-goog-api-key': apiKey },
+    signal: AbortSignal.timeout(4_000),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      model: '',
+      status: response.status,
+      providerCode: payload?.error?.status || `http_${response.status}`,
+    };
+  }
+
+  const candidates = (Array.isArray(payload.models) ? payload.models : [])
+    .filter((item) => item && typeof item.name === 'string' &&
+      Array.isArray(item.supportedGenerationMethods) &&
+      item.supportedGenerationMethods.includes('generateContent'))
+    .map((item) => item.name.replace(/^models\//, ''))
+    .filter((name) => /^gemini-/i.test(name) && /flash/i.test(name) &&
+      !/embedding|image|tts|robotics|computer-use/i.test(name) && !exclude.includes(name));
+
+  const preferred = candidates.find((name) => name === PREFERRED_MODEL);
+  if (preferred) {
+    modelCache = preferred;
+    modelCacheExpiresAt = Date.now() + 30 * 60 * 1000;
+    return { model: preferred };
+  }
+
+  const version = (name) => {
+    const match = name.match(/gemini-(\d+)(?:\.(\d+))?/i);
+    return match ? Number(match[1]) * 100 + Number(match[2] || 0) : 0;
+  };
+  candidates.sort((left, right) => {
+    const leftStable = /preview|experimental|exp-/i.test(left) ? 0 : 1;
+    const rightStable = /preview|experimental|exp-/i.test(right) ? 0 : 1;
+    return rightStable - leftStable || version(right) - version(left) ||
+      Number(/flash-lite/i.test(right)) - Number(/flash-lite/i.test(left)) ||
+      left.localeCompare(right);
+  });
+  const model = candidates[0] || '';
+  if (model) {
+    modelCache = model;
+    modelCacheExpiresAt = Date.now() + 30 * 60 * 1000;
+  }
+  return { model };
+}
 const allowedActions = new Set([
   'navigate', 'read_screen', 'create_note', 'create_task', 'visitor_checkin',
   'visitor_checkout', 'create_call', 'create_appointment', 'create_enquiry',
@@ -102,28 +156,59 @@ module.exports = async function handler(req, res) {
   ];
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents,
-        generationConfig: {
-          temperature: audio ? 0 : 0.2,
-          maxOutputTokens: 450,
-          responseMimeType: 'application/json',
-        },
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    const payload = await response.json().catch(() => ({}));
+    const selected = await discoverGeminiModel(apiKey);
+    if (!selected.model) {
+      const providerCode = selected.providerCode || 'no_supported_models';
+      console.error('Gemini model discovery failed', selected.status || 0, String(providerCode).slice(0, 80));
+      const message = selected.status === 401 || selected.status === 403
+        ? 'Google rejected the API key while checking available Gemini models. Check the key and Generative Language API access.'
+        : selected.status === 429
+        ? 'Google Gemini has reached its free usage limit. Please try again later.'
+        : 'Google did not list an available Gemini Flash model for this API key.';
+      return res.status(502).json({ error: message, providerCode });
+    }
+
+    const generate = (model) => fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents,
+          generationConfig: {
+            temperature: audio ? 0 : 0.2,
+            maxOutputTokens: 450,
+            responseMimeType: 'application/json',
+          },
+        }),
+        signal: AbortSignal.timeout(16_000),
+      },
+    );
+
+    let model = selected.model;
+    let response = await generate(model);
+    let payload = await response.json().catch(() => ({}));
+    if (response.status === 404) {
+      const alternate = await discoverGeminiModel(apiKey, {
+        refresh: true,
+        exclude: [model],
+      });
+      if (alternate.model) {
+        model = alternate.model;
+        response = await generate(model);
+        payload = await response.json().catch(() => ({}));
+      }
+    }
     if (!response.ok) {
       const providerCode = payload?.error?.status || `http_${response.status}`;
-      console.error('Google Gemini request failed', response.status, String(providerCode).slice(0, 80));
+      console.error('Google Gemini request failed', response.status, String(providerCode).slice(0, 80), model);
       const message = response.status === 401 || response.status === 403
         ? 'Google Gemini rejected the API key. Check the key and API access settings.'
         : response.status === 429
         ? 'Google Gemini has reached its free usage limit. Please try again later.'
+        : response.status === 404
+        ? 'Google Gemini could not find an available model for this API key. Check the Gemini API access in Google AI Studio.'
         : 'Google Gemini could not answer right now.';
       return res.status(502).json({ error: message, providerCode });
     }
