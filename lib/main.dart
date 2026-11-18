@@ -6785,3 +6785,10 @@ String _month(int m) => const [
 ][m - 1];
 String _weekday(DateTime d) => const [
   'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+][d.weekday - 1];
