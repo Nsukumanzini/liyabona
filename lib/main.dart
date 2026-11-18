@@ -703,6 +703,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   Future<_AssistantResult?> _askModel(
     String text, {
     String? audioBase64,
+    bool yesNoConfirmation = false,
   }) async {
     if (text.trim().isEmpty && audioBase64 == null) return null;
     await _knowledgeReady;
@@ -721,6 +722,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             body: jsonEncode({
               'text': text,
               if (audioBase64 != null) 'audio': audioBase64,
+              if (yesNoConfirmation) 'yesNoConfirmation': true,
               'screen': _page,
               'summary': _pageSummary(),
               'knowledge': _knowledgeText,
@@ -1557,7 +1559,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _finishingAudio = false;
       return;
     }
-    if (noSpeech || _voicedSampleCount < 6000) {
+    if (noSpeech || _voicedSampleCount < 2400) {
       _finishingAudio = false;
       setState(() {
         _listening = false;
@@ -1577,7 +1579,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _transcript = 'Transcribing your request…';
     });
     _refreshAssistantPopup();
-    final result = await _askModel('', audioBase64: base64Encode(wav));
+    final isYesNoConfirmation =
+        _awaitingSessionChoice ||
+        _pendingVoiceConfirmation != null ||
+        _pendingLocalVoiceCommand != null;
+    final result = await _askModel(
+      '',
+      audioBase64: base64Encode(wav),
+      yesNoConfirmation: isYesNoConfirmation,
+    );
     _finishingAudio = false;
     if (!_voiceSession || !mounted) return;
     if (result == null) {
@@ -1585,7 +1595,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       return;
     }
     final cleaned = result.transcript.trim();
-    if (cleaned.length < 2 || result.confidence < 0.72) {
+    final transcriptConfidenceFloor = isYesNoConfirmation ? 0.4 : 0.72;
+    if (cleaned.length < 2 || result.confidence < transcriptConfidenceFloor) {
+      if (!_forceOfflineSpeech && _speechReady) {
+        await _useOfflineSpeech();
+        return;
+      }
       _processing = false;
       setState(() {
         _transcript = 'I could not make out those words. Please try again.';
@@ -2483,11 +2498,25 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       (action != 'navigate' && action != 'answer' && action != 'clarify') ||
       _isReadRequest(command);
 
-  bool _isYesAnswer(String command) =>
-      RegExp(r'^(yes|yeah|yep|ja)[.! ]*$').hasMatch(command);
+  String _normaliseChoice(String command) => command
+      .toLowerCase()
+      .replaceAll(RegExp(r"[^a-z ]"), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 
-  bool _isNoAnswer(String command) =>
-      RegExp(r'^(no|nope|nah)[.! ]*$').hasMatch(command);
+  bool _isYesAnswer(String command) {
+    final choice = _normaliseChoice(command);
+    return RegExp(
+      r'^(yes+|yeah+|yep+|yup+|ja|yebo|sure|correct)( please| continue| go ahead| keep listening)?$',
+    ).hasMatch(choice);
+  }
+
+  bool _isNoAnswer(String command) {
+    final choice = _normaliseChoice(command);
+    return RegExp(
+      r'^(no+|nope|nah|nee)( please| thanks| thank you| stop| cancel| do not continue)?$',
+    ).hasMatch(choice);
+  }
 
   bool _isReadRequest(String command) =>
       RegExp(
