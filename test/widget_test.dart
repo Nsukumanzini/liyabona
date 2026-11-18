@@ -18,10 +18,10 @@ void main() {
   });
 
   testWidgets('reception app opens on the AI copilot screen', (tester) async {
-    await tester.pumpWidget(const ReceptionDemo());
+    await tester.pumpWidget(const LiyabonaApp());
     await tester.pump();
 
-    expect(find.byType(ReceptionDemo), findsOneWidget);
+    expect(find.byType(LiyabonaApp), findsOneWidget);
     expect(find.text('AI copilot'), findsWidgets);
   });
 }
