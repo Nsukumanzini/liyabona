@@ -21,15 +21,15 @@ const redSoft = Color(0xFFFFE9E5);
 const _assistantEndpoint =
     'https://campuscare-reception-demo.vercel.app/api/assistant';
 
-void main() => runApp(const ReceptionDemo());
+void main() => runApp(const LiyabonaApp());
 
-class ReceptionDemo extends StatefulWidget {
-  const ReceptionDemo({super.key});
+class LiyabonaApp extends StatefulWidget {
+  const LiyabonaApp({super.key});
   @override
-  State<ReceptionDemo> createState() => _ReceptionDemoState();
+  State<LiyabonaApp> createState() => _LiyabonaAppState();
 }
 
-class _ReceptionDemoState extends State<ReceptionDemo> {
+class _LiyabonaAppState extends State<LiyabonaApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _speech = stt.SpeechToText();
   final _tts = FlutterTts();
@@ -198,7 +198,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     );
     _visitors.addAll([
       _Visitor(
-        'Sample visitor',
+        'Walk-in visitor',
         'Student Support',
         'Registration question',
         DateTime.now(),
@@ -380,7 +380,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         _mailboxProvider = decoded['mailboxProvider']?.toString();
       });
     } catch (_) {
-      // Keep the app usable with its sample records if the local data is damaged.
+      // Keep the app usable with its saved records if local data is damaged.
     }
   }
 
@@ -1453,11 +1453,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
           : 'Document about ${_titleCase(topic)}';
       _documents.insert(
         0,
-        _Document(
-          title,
-          'Draft created in the demo workspace.',
-          DateTime.now(),
-        ),
+        _Document(title, 'Draft prepared in Liyabona.', DateTime.now()),
       );
       _go('Documents');
       response =
@@ -1500,7 +1496,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       _go('Learners');
       final person = _after(command, ['find ', 'search for ', 'look up ']);
       if (person.isNotEmpty) _search = person;
-      response = 'I opened the learner directory. It contains fictional sample records for this demo.';
+      response = 'I opened the learner directory. The listed contacts are illustrative; college-approved records can be added after access is arranged.';
     } else if (command.contains('enquir') ||
         command.contains('request') ||
         command.contains('case')) {
@@ -1525,7 +1521,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         response = 'I recorded a new student enquiry.';
       } else {
         response =
-            'There are ${_enquiries.length} sample enquiries: ${_enquiries.map((item) => '${item.name}, ${item.category}, ${item.status}').join('. ')}';
+            'There are ${_enquiries.length} learner enquiries: ${_enquiries.map((item) => '${item.name}, ${item.category}, ${item.status}').join('. ')}';
       }
     } else if (command.contains('copilot') ||
         command.startsWith('ask ai') ||
@@ -1557,7 +1553,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
         command.contains('show notes')) {
       _go('Notes');
       response =
-          'You have ${_notes.length} saved demo notes. ' +
+          'You have ${_notes.length} saved notes. ' +
           (_notes.isEmpty ? '' : _notes.first.title + ': ' + _notes.first.body);
     }
     if (mounted)
@@ -1754,7 +1750,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Choose the college mailbox and email service. This demo only saves your selection on this device; it does not sign in or connect.',
+                    'Choose the Student Support mailbox and email service. Your selection is saved on this device. Email sign-in will be available once the college approves secure access.',
                     style: TextStyle(height: 1.4),
                   ),
                   const SizedBox(height: 18),
@@ -1832,7 +1828,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       });
       await _persistWindowsData();
       _announce(
-        'Mailbox details saved for this demo. No email account is connected.',
+        'Mailbox details saved on this device. The email account is not connected yet.',
       );
     } finally {
       addressController.dispose();
@@ -1942,8 +1938,8 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
               .take(3)
               .map((e) => '${e.subject}, to ${e.recipient}')
               .join('. '),
-    'Learners' => 'Learner directory. Sample learners include Lerato Mokoena, Thabo Khumalo, Amina Dlamini and Sibusiso Ndlovu.',
-    'Knowledge' => 'Knowledge base. Reception hours are Monday to Friday, eight in the morning to four in the afternoon. The Student Support office is in the main block, next to the library.',
+    'Learners' => 'Learner directory with illustrative contacts for registration, academic, financial aid and accessibility support.',
+    'Knowledge' => 'Reception reference. Hours and campus directions should be confirmed with Student Support before sharing them as official information.',
     'AI copilot' => 'Liyabona AI is ready for reception questions and app actions. Use the message box to type or the microphone control to speak.',
     'Visitors' =>
       'Visitor register. ${_visitors.where((v) => v.checkedOut == null).length} visitors are currently checked in. ${_visitors.take(4).map((v) => '${v.name}, visiting ${v.host}').join('. ')}',
@@ -1967,7 +1963,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
     if (q.contains('office') || q.contains('hour') || q.contains('where'))
       return 'The Student Support office is in the main block, next to the library. Reception hours are Monday to Friday, eight in the morning to four in the afternoon.';
     if (q.contains('enquir') || q.contains('request'))
-      return 'There are ${_enquiries.length} sample enquiries. ' +
+      return 'There are ${_enquiries.length} learner enquiries. ' +
           _enquiries
               .map((e) => '${e.name}: ${e.category}, ${e.status}')
               .join('. ');
@@ -1984,8 +1980,8 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
               .map((task) => task.title)
               .join('. ');
     if (q.contains('note') || q.contains('draft'))
-      return 'I can create a local demo note. Say “create a note” followed by the details, and I will save it in this session.';
-    return 'I can help with the calendar, call-backs, visitors, desk tasks, learner enquiries, notes, email drafts, documents and campus information. The AI service is offline, so this response uses the built-in demo helper.';
+      return 'I can create a note on this device. Say “create a note” followed by the details, and I will save it for you.';
+    return 'I can help with the calendar, call-backs, visitors, desk tasks, learner enquiries, notes, email drafts, documents and campus information. The online AI service is unavailable right now, but I can still help with common reception tasks.';
   }
 
   Future<void> _createRecord(String kind, {String initial = ''}) async {
@@ -2068,7 +2064,7 @@ class _ReceptionDemoState extends State<ReceptionDemo> {
       }
     });
     await _persistWindowsData();
-    _announce('$kind saved in this demo session.');
+    _announce('$kind saved on this device.');
     await _speak('$kind saved.');
   }
 
@@ -2574,21 +2570,6 @@ class _Sidebar extends StatelessWidget {
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(21, 0, 16, 16),
-            child: Row(
-              children: [
-                Icon(Icons.shield_outlined, size: 15, color: Color(0xFF74847B)),
-                SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    'Demo mode · sample data only',
-                    style: TextStyle(fontSize: 10, color: Color(0xFF74847B)),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     ),
@@ -2674,8 +2655,6 @@ class _DesktopTopbar extends StatelessWidget {
             ),
           ),
         ),
-        const _DemoBadge(),
-        const SizedBox(width: 16),
         IconButton(
           tooltip: 'Read this screen aloud',
           onPressed: onRead,
@@ -2702,33 +2681,6 @@ class _DesktopTopbar extends StatelessWidget {
               fontWeight: FontWeight.w800,
               fontSize: 11,
             ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _DemoBadge extends StatelessWidget {
-  const _DemoBadge();
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(
-      color: amber,
-      borderRadius: BorderRadius.circular(30),
-    ),
-    child: const Row(
-      children: [
-        Icon(Icons.science_outlined, size: 14, color: Color(0xFF916318)),
-        SizedBox(width: 5),
-        Text(
-          'DEMO',
-          style: TextStyle(
-            fontSize: 9,
-            letterSpacing: .8,
-            fontWeight: FontWeight.w900,
-            color: Color(0xFF805710),
           ),
         ),
       ],
@@ -2950,7 +2902,7 @@ class _HomePage extends StatelessWidget {
                 _MetricCard(
                   label: 'Notes saved today',
                   value: '${notes.length}',
-                  hint: 'Private to this demo session',
+                  hint: 'Saved on this device',
                   icon: Icons.sticky_note_2_outlined,
                   tone: const Color(0xFFF1ECFA),
                   onTap: () => onNavigate('Notes'),
@@ -3496,31 +3448,12 @@ class _CopilotPromo extends StatelessWidget {
                 ),
                 const SizedBox(width: 7),
                 const Text(
-                  'RECEPTION COPILOT',
+                  'LIYABONA AI ASSISTANT',
                   style: TextStyle(
                     fontSize: 9,
                     letterSpacing: 1.2,
                     color: Color(0xFFB7E5D7),
                     fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .14),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text(
-                    'DEMO AI',
-                    style: TextStyle(
-                      fontSize: 8,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
                   ),
                 ),
               ],
@@ -3610,7 +3543,7 @@ class _LocalNotice extends StatelessWidget {
         SizedBox(width: 8),
         Expanded(
           child: Text(
-            'Demo mode: Windows voice commands use local speech recognition, and their records are saved on this computer without AI requests. Web and mobile AI requests may send the current screen summary and conversation through Vercel AI Gateway to Google Gemini. No college systems or mailboxes are connected.',
+            'The microphone starts only when requested. Windows records are saved on this computer; web and mobile records stay in the current session. When online, Liyabona AI sends recognized text, recent chat and screen context to Google Gemini through Vercel. College systems and mailboxes are not connected.',
             style: TextStyle(
               fontSize: 10,
               height: 1.45,
@@ -4066,7 +3999,7 @@ class _NotesPage extends StatelessWidget {
         children: [
           const Expanded(
             child: Text(
-              'Saved in this demo session',
+              'Saved on this device',
               style: TextStyle(fontSize: 11, color: Color(0xFF728078)),
             ),
           ),
@@ -4315,7 +4248,7 @@ class _EmailsPage extends StatelessWidget {
                       Text(
                         mailboxProvider == null
                             ? 'Use the college Student Support address'
-                            : '$mailboxProvider · setup details saved for this demo',
+                            : '$mailboxProvider · setup details saved on this device',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFF68776E),
@@ -4328,7 +4261,7 @@ class _EmailsPage extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             const Text(
-              'Email connection needs the college to confirm its mail provider and approve secure access. No mailbox is connected in this demo.',
+              'To connect Student Support email, the college must confirm its mail provider and approve secure access. Drafts can be reviewed here; messages are not sent from Liyabona yet.',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.45,
@@ -4362,7 +4295,7 @@ class _EmailsPage extends StatelessWidget {
         children: [
           const Expanded(
             child: Text(
-              'Review AI-assisted replies before sending. Drafts stay in this demo session.',
+              'Review AI-assisted replies before sending. Drafts remain on this device until a mailbox is connected.',
               style: TextStyle(fontSize: 11, color: Color(0xFF728078)),
             ),
           ),
@@ -4657,7 +4590,7 @@ class _LearnersPageState extends State<_LearnersPage> {
       children: [
         _PageHeading(
           title: 'Learner directory',
-          subtitle: 'Sample contacts only. Use fictional records for this presentation.',
+          subtitle: 'Illustrative contacts for registration, academic, financial aid and accessibility support.',
         ),
         TextField(
           controller: _search,
@@ -4714,7 +4647,7 @@ class _KnowledgePage extends StatelessWidget {
     children: [
       _PageHeading(
         title: 'Reception knowledge',
-        subtitle: 'A quick reference for common campus questions. Sample information for discussion only.',
+        subtitle: 'A quick reference for common campus questions. Confirm current procedures with Student Support.',
       ),
       _KnowledgeCard(
         icon: Icons.access_time_rounded,
@@ -4899,7 +4832,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'The assistant can open screens and manage demo notes, tasks, calls, appointments, visitor check-ins and enquiries. It asks a follow-up when key details are unclear.',
+              'The assistant can open screens and manage notes, tasks, calls, appointments, visitor check-ins and enquiries. It asks a follow-up when key details are unclear.',
               style: TextStyle(fontSize: 12, height: 1.45, color: forest),
             ),
             const SizedBox(height: 8),
@@ -5338,7 +5271,7 @@ class _MorePage extends StatelessWidget {
     children: [
       const _PageHeading(
         title: 'More reception tools',
-        subtitle: 'Explore the other areas of the demo.',
+        subtitle: 'Explore the reception workspace.',
       ),
       for (final item in const [
         ('Call log', Icons.call_outlined, 'Call history and call-backs'),
@@ -5354,7 +5287,7 @@ class _MorePage extends StatelessWidget {
           Icons.mark_email_unread_outlined,
           'Draft messages for review',
         ),
-        ('Learners', Icons.people_alt_outlined, 'Fictional learner directory'),
+        ('Learners', Icons.people_alt_outlined, 'Learner contact directory'),
         ('Knowledge', Icons.menu_book_outlined, 'Common campus answers'),
         ('AI copilot', Icons.auto_awesome_rounded, 'Ask or dictate a question'),
       ])
@@ -5643,7 +5576,7 @@ class _RecordDialogState extends State<_RecordDialog> {
                 ),
               const SizedBox(height: 9),
               const Text(
-                'Demo only: this record stays in memory for this presentation.',
+                'Windows saves records on this computer. Web and mobile records remain in this session.',
                 style: TextStyle(fontSize: 10, color: Color(0xFF708078)),
               ),
             ],
