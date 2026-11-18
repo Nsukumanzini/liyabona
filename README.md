@@ -1,8 +1,16 @@
 # Liyabona Reception
 
-A Flutter front-end demo for a student support receptionist. It targets Android, iOS, Windows and web. It includes a deliberate voice session, screen read-aloud, keyboard and touch controls, large text and high-contrast options, and fictional reception records.
+Liyabona is an accessible reception workspace for TVET Student Support Services. It supports Android, iOS, Windows and web, with voice navigation, spoken screen summaries, keyboard and touch controls, larger text and high contrast.
 
-The AI assistant opens first and remains available from the sparkle button on every screen. It can navigate and manage demo records through Vercel AI Gateway. Requests and a short screen summary are sent to Google Gemini. Do not use real learner or staff information in this demo. Records are still held only in memory, and college services are not connected.
+The workspace includes a calendar, learner enquiries, notes, documents, email drafts, learner contacts, campus information, visitor records, tasks and an AI assistant. Reception records are saved locally on Windows and remain in the current session on web and mobile. Student systems and the college mailbox are not connected.
+
+## AI service setup
+
+Liyabona is configured to use Google Gemini through Vercel AI Gateway. Windows speech recognition runs on the computer, then the recognized request and screen context are sent to the AI service when a network connection is available. Built-in reception commands remain available if the AI service cannot respond.
+
+The current Vercel endpoint is returning `403 customer_verification_required`. To enable AI responses, the Vercel account owner must complete AI Gateway verification and add a valid payment method. Vercel deployments use OIDC authentication; no AI key belongs in the Flutter app. Set a spend limit before enabling regular use. Google Gemini requests include the recognized text, recent conversation and current screen summary, so confirm the college's data-handling requirements before entering learner or staff information.
+
+Email drafts can be prepared and reviewed in Liyabona. Sending or receiving college email requires Student Support's mailbox provider and secure access to be approved and configured by college IT.
 
 ## Run locally
 
@@ -11,34 +19,32 @@ flutter pub get
 flutter run -d chrome
 ```
 
-Build the web demo with:
+Build the web application with:
 
 ```sh
 flutter build web --release
 ```
 
-Use Android Studio or Xcode to run the mobile targets, and Visual Studio with the Desktop development with C++ workload for Windows.
+Use Android Studio or Xcode for the mobile targets. A local Windows build requires Visual Studio with the Desktop development with C++ workload.
 
 ## Build Windows with GitHub Actions
 
 The workflow at `.github/workflows/build-windows.yml` builds a Windows release on a GitHub-hosted Windows runner and saves `Liyabona-Windows.zip` as an Actions artifact.
 
-1. Open this repository on GitHub and select **Actions**. Approve Actions for the repository if GitHub asks.
-2. Select **Build Windows app**, then select **Run workflow**. New pushes to `main` also start a build.
+1. Open the repository on GitHub and select **Actions**. Approve Actions for the repository if GitHub asks.
+2. Select **Build Windows app**, then **Run workflow**. A push to `main` also starts a build.
 3. Open the completed workflow run and download the **Liyabona-Windows** artifact.
-4. Extract the ZIP on the Windows computer and run `liyabona.exe` from the extracted folder. Keep the DLLs and data folders beside the EXE.
+4. Extract the ZIP on Windows and run `liyabona.exe`. Keep the DLLs and `data` folder beside the executable.
 
-GitHub's `windows-latest` runner supplies the Windows build tools, so Visual Studio does not need to be installed on your development computer. The Windows machine still needs a compatible microphone and a locally available speech-recognition language pack for on-device speech recognition. The runner builds the app; it does not test speech recognition on the target computer.
+The GitHub runner supplies the Windows build tools, so Visual Studio is not needed on the development computer. The target Windows computer needs microphone access and a supported speech recognizer. The runner compiles the application but cannot verify microphone operation on that computer. The distributed executable is not code-signed; Windows security policy may require approval from the computer administrator or a trusted signature.
 
-## Voice demo commands
+## Voice commands
 
-Start a voice session using **Talk to Liyabona**. Say a command, pause while the app responds, then continue speaking. Say **stop listening** to end the session, or tap **Stop voice**.
+Start a voice session using **Talk to Liyabona**. Say a request, pause while Liyabona responds, then continue. Say **stop listening** to end the session, or choose **Stop voice**.
 
-### Windows offline voice
+On Windows, voice recognition uses Windows SAPI and prefers English (South Africa) when that recognizer is installed. Otherwise, it uses another installed English recognizer. Recognition is performed on the computer; AI interpretation requires an internet connection. Voice-created notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage.
 
-On Windows, voice commands use Windows SAPI speech recognition and the local command handler. The recognizer and SAPI speech synthesis code are compiled into `liyabona.exe`, rather than loaded from the speech or text-to-speech plugin DLLs. Recognition prefers English (South Africa) if Windows has that offline recognizer, then falls back to English (United Kingdom) or another installed English recognizer. Windows' built-in offline recognizer may not include South African English. Speculative and low-confidence results are ignored. Voice requests do not call the online AI endpoint. Notes, tasks, calendar items, email drafts, call logs, enquiries, visitors and documents created by voice are saved in the signed-in Windows user's local app preferences and restored when Liyabona starts again. Spoken replies use an installed Windows speech voice at the normal rate.
-
-Try commands such as:
+Examples:
 
 - “Open calendar.”
 - “Schedule an appointment with Lerato tomorrow at 2 PM about registration.”
@@ -50,30 +56,4 @@ Try commands such as:
 - “Draft an email to Amina about financial aid.”
 - “Read this screen.”
 
-The Windows speech recognizer must be available and configured on the computer, and Windows must have microphone access. Depending on the Windows language configuration, an offline speech language pack may still be required. No cloud AI is used for Windows voice or copilot requests. The built-in command handler understands known reception actions; it does not provide open-ended generative AI while offline.
-
-Examples:
-
-- “Check the calendar.”
-- “Read this screen.”
-- “Log a call from Alex about a replacement card.”
-- “Schedule an appointment with Sam about registration.”
-- “Create a note about preparing the orientation packs.”
-- “Add to my note: call the transport office.”
-- “Create a document about appointment confirmation.”
-- “Ask the copilot what needs a call-back.”
-- “Find a learner.”
-- “Check in visitor Sam visiting the campus manager.”
-- “Check out Sam.”
-- “Add a desk task: prepare the visitor sign-in sheets.”
-- “Complete task prepare the visitor sign-in sheets.”
-- “Open the visitor register.”
-- “Show my tasks.”
-- “Write a note that the registration forms are ready.”
-- “Remind me to call the transport office tomorrow.”
-- “Schedule a meeting with Lerato tomorrow at 2 PM about registration.”
-
-## Demo limits
-
-Names and records are fictional. On Windows, voice-created records are saved locally on that computer; other demo records stay in memory. Web and mobile copilot requests use Vercel AI Gateway and Google Gemini; the current screen summary and conversation are sent with each request. No college system, email or college mailbox is connected. Web speech recognition depends on browser support and network availability. The microphone stays off until the user starts a voice session.
-
+The app keeps the microphone off until a voice session is started. Web speech recognition depends on browser support and network availability.
