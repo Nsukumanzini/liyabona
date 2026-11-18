@@ -185,6 +185,12 @@ void FlutterWindow::PositionFloatingButton() {
 void FlutterWindow::SetFloatingState(const std::string& state) {
   floating_state_ = state;
   if (floating_button_ != nullptr) {
+    const wchar_t* label = L"Liyabona voice button. Click to speak.";
+    if (state == "wake") label = L"Liyabona wake word is listening. Say Assist.";
+    else if (state == "listening") label = L"Liyabona is listening.";
+    else if (state == "processing") label = L"Liyabona is working.";
+    else if (state == "speaking") label = L"Liyabona is speaking.";
+    SetWindowTextW(floating_button_, label);
     InvalidateRect(floating_button_, nullptr, FALSE);
   }
 }
@@ -227,6 +233,8 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
       COLORREF status_color = RGB(19, 121, 109);
       if (owner != nullptr && owner->floating_state_ == "listening") {
         status_color = RGB(176, 53, 41);
+      } else if (owner != nullptr && owner->floating_state_ == "wake") {
+        status_color = RGB(202, 137, 34);
       } else if (owner != nullptr && owner->floating_state_ == "processing") {
         status_color = RGB(202, 137, 34);
       } else if (owner != nullptr && owner->floating_state_ == "speaking") {

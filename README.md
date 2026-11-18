@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 1505)
-Total output lines: 68
-
 # Liyabona Reception
 
 Liyabona is an accessible reception workspace for TVET Student Support Services. It supports Android, iOS, Windows and web, with voice navigation, spoken screen summaries, keyboard and touch controls, larger text and high contrast.
@@ -17,7 +14,7 @@ Email drafts can be prepared and reviewed in Liyabona. Sending or receiving coll
 
 On Windows, switch to an email, Office document or another app and press **Ctrl+Alt+R**. Liyabona reads aloud text that the active app exposes through Windows UI Automation. This feature is read-only; the extracted text stays on the computer and is not added to chat or sent to Gemini. It can only read content exposed by the other app's accessibility support, and it does not sign in to mailboxes or modify external apps.
 
-The Windows app also shows a small floating microphone button above other apps. Click it, or press **Ctrl+Alt+Space**, to open Liyabona and start a voice session. The microphone is off until activated. Clicking the button again stops the session. Voice commands that change Liyabona records still require a spoken yes/no approval; reading text from another app remains a separate, local, read-only shortcut.
+The Windows app also shows a small floating microphone button above other apps. Click it, or press **Ctrl+Alt+Space**, to open Liyabona and start a voice session. The microphone is off until activated. Clicking the button again stops the session. On Windows, the optional Assist wake word can be enabled in the AI assistant settings; while enabled, Windows speech recognition listens locally for “Assist” as long as Liyabona is open. Reading text from another app remains a separate, local, read-only shortcut.
 
 ## Run locally
 
@@ -34,7 +31,7 @@ flutter build web --release
 
 Vercel uses `scripts/vercel-build.sh` to install Flutter 3.50.0 and build the web application from the connected Git repository. The static site is published from `build/web`, while `api/assistant.js` runs as a Vercel function.
 
-Use Android Studio or Xcode for the mobile targets. A l…5 tokens truncated… requires Visual Studio with the Desktop development with C++ workload.
+Use Android Studio or Xcode for the mobile targets. A local Windows build requires Visual Studio with the Desktop development with C++ workload.
 
 ## Build Windows with GitHub Actions
 
@@ -49,7 +46,7 @@ The GitHub runner supplies the Windows build tools, so Visual Studio is not need
 
 ## Voice commands
 
-Start a voice session using **Talk to Liyabona**. After each request, Liyabona asks whether to keep listening; say **yes** or **no**. Opening a screen happens immediately. Before reading information or creating, editing, or deleting a record, Liyabona asks for **yes** or **no** first. Say **stop listening** at any time to end the session, or choose **Stop voice**.
+Start a voice session using **Talk to Liyabona**. After each request, press any key within 15 seconds to keep listening; if no key is pressed, Liyabona stops listening. Opening a screen happens immediately. Before reading information or creating, editing, or deleting a record, press any key within 15 seconds to approve; otherwise the request is cancelled. Say **stop listening** at any time to end the session, or choose **Stop voice**.
 
 Online voice recognition sends a short recording to Gemini, which transcribes English (South Africa) and interprets the command in one request. If the online service is unreachable, Windows uses its installed speech recognizer. Voice-created, edited and deleted notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage. The Knowledge screen lets the receptionist type or paste personal preferences and helpful work information. Saved Knowledge is sent to Gemini with an AI request; do not enter passwords or confidential learner details.
 
@@ -66,6 +63,6 @@ Examples:
 - “Read this screen.”
 - “Edit the task called prepare visitor sheets and change the detail to print 20 copies.”
 - “Delete the note called registration forms.”
-- Answer **yes** or **no** when Liyabona asks to continue listening or approve a change.
+- Press any key within 15 seconds when Liyabona asks to continue listening or approve a change; otherwise the request is cancelled.
 
 The app keeps the microphone off until a voice session is started. Voice commands are processed online when a connection is available, with device speech recognition as the fallback.
