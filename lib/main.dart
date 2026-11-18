@@ -944,7 +944,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
                   .toList(),
             }),
           )
-          .timeout(Duration(seconds: audioBase64 == null ? 26 : 35));
+          .timeout(Duration(seconds: audioBase64 == null ? 30 : 35));
       if (response.statusCode != 200) {
         final body = jsonDecode(response.body);
         _assistantError = body is Map && body['error'] is String

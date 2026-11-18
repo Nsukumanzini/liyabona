@@ -43,8 +43,9 @@ async function discoverGeminiModel(apiKey, { refresh = false, exclude = [] } = {
   candidates.sort((left, right) => {
     const leftStable = /preview|experimental|exp-/i.test(left) ? 0 : 1;
     const rightStable = /preview|experimental|exp-/i.test(right) ? 0 : 1;
-    return rightStable - leftStable || version(right) - version(left) ||
+    return rightStable - leftStable ||
       Number(/flash-lite/i.test(right)) - Number(/flash-lite/i.test(left)) ||
+      version(right) - version(left) ||
       left.localeCompare(right);
   });
   const model = candidates[0] || '';
@@ -151,6 +152,7 @@ module.exports = async function handler(req, res) {
     },
   ];
 
+  let requestStage = 'model discovery';
   try {
     const selected = await discoverGeminiModel(apiKey);
     if (!selected.model) {
@@ -176,13 +178,17 @@ module.exports = async function handler(req, res) {
             temperature: audio ? 0 : 0.2,
             maxOutputTokens: 450,
             responseMimeType: 'application/json',
+            ...( /^gemini-2\.5-(?:flash|flash-lite)/i.test(model)
+              ? { thinkingConfig: { thinkingBudget: 0 } }
+              : {}),
           },
         }),
-        signal: AbortSignal.timeout(16_000),
+        signal: AbortSignal.timeout(22_000),
       },
     );
 
     let model = selected.model;
+    requestStage = `Gemini generation (${model})`;
     let response = await generate(model);
     let payload = await response.json().catch(() => ({}));
     if (response.status === 404) {
@@ -192,6 +198,7 @@ module.exports = async function handler(req, res) {
       });
       if (alternate.model) {
         model = alternate.model;
+        requestStage = `Gemini retry (${model})`;
         response = await generate(model);
         payload = await response.json().catch(() => ({}));
       }
@@ -282,7 +289,12 @@ module.exports = async function handler(req, res) {
       confidence: Number.isFinite(confidence) ? confidence : 0,
     });
   } catch (error) {
-    console.error('Liyabona AI request failed', error?.name || 'UnknownError');
+    console.error('Liyabona AI request failed', requestStage, error?.name || 'UnknownError');
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      return res.status(504).json({
+        error: 'Google Gemini took too long to respond. Please try again; Liyabona’s built-in command helper remains available.',
+      });
+    }
     return res.status(502).json({ error: 'I could not reach the AI service. Please try again.' });
   }
 };
