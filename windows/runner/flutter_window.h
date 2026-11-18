@@ -7,6 +7,7 @@
 #include <flutter/standard_method_codec.h>
 
 #include <memory>
+#include <string>
 
 #include "win32_window.h"
 
@@ -33,6 +34,16 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       accessibility_channel_;
   bool accessibility_hotkey_registered_ = false;
+  bool assistant_hotkey_registered_ = false;
+  HWND floating_button_ = nullptr;
+  std::string floating_state_ = "idle";
+
+  bool CreateFloatingButton();
+  void PositionFloatingButton();
+  void SetFloatingState(const std::string& state);
+  void ActivateAssistant();
+  static LRESULT CALLBACK FloatingButtonWindowProc(
+      HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

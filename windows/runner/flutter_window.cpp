@@ -4,6 +4,7 @@
 #include <cwctype>
 #include <set>
 #include <string>
+#include <variant>
 
 #include <UIAutomation.h>
 #include <wrl/client.h>
@@ -14,8 +15,11 @@
 
 namespace {
 constexpr int kReadActiveAppHotkey = 0x4C;
-constexpr UINT kReadActiveAppMessage = WM_HOTKEY;
 constexpr UINT kReadActiveAppKey = 'R';
+constexpr int kAssistantHotkey = 0x4D;
+constexpr wchar_t kFloatingButtonClass[] = L"LiyabonaFloatingVoiceButton";
+constexpr int kFloatingButtonSize = 76;
+constexpr COLORREF kTransparentColor = RGB(255, 0, 255);
 using Microsoft::WRL::ComPtr;
 
 std::wstring BstrToString(BSTR value) {
@@ -142,6 +146,129 @@ FlutterWindow::FlutterWindow(const flutter::DartProject& project)
 
 FlutterWindow::~FlutterWindow() {}
 
+bool FlutterWindow::CreateFloatingButton() {
+  const HINSTANCE instance = GetModuleHandleW(nullptr);
+  WNDCLASSEXW window_class{};
+  window_class.cbSize = sizeof(window_class);
+  window_class.lpfnWndProc = FlutterWindow::FloatingButtonWindowProc;
+  window_class.hInstance = instance;
+  window_class.hCursor = LoadCursorW(nullptr, IDC_HAND);
+  window_class.lpszClassName = kFloatingButtonClass;
+  if (!RegisterClassExW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    return false;
+  }
+
+  floating_button_ = CreateWindowExW(
+      WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
+      kFloatingButtonClass, L"Liyabona voice assistant", WS_POPUP,
+      0, 0, kFloatingButtonSize, kFloatingButtonSize, nullptr, nullptr,
+      instance, this);
+  if (floating_button_ == nullptr) return false;
+  SetLayeredWindowAttributes(floating_button_, kTransparentColor, 0,
+                             LWA_COLORKEY);
+  PositionFloatingButton();
+  return true;
+}
+
+void FlutterWindow::PositionFloatingButton() {
+  if (floating_button_ == nullptr) return;
+  MONITORINFO monitor_info{};
+  monitor_info.cbSize = sizeof(monitor_info);
+  HMONITOR monitor = MonitorFromWindow(GetHandle(), MONITOR_DEFAULTTONEAREST);
+  if (monitor == nullptr || !GetMonitorInfoW(monitor, &monitor_info)) return;
+  const int x = monitor_info.rcWork.right - kFloatingButtonSize - 18;
+  const int y = monitor_info.rcWork.bottom - kFloatingButtonSize - 88;
+  SetWindowPos(floating_button_, HWND_TOPMOST, x, y, kFloatingButtonSize,
+               kFloatingButtonSize, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+void FlutterWindow::SetFloatingState(const std::string& state) {
+  floating_state_ = state;
+  if (floating_button_ != nullptr) {
+    InvalidateRect(floating_button_, nullptr, FALSE);
+  }
+}
+
+void FlutterWindow::ActivateAssistant() {
+  ShowWindow(GetHandle(), SW_RESTORE);
+  SetForegroundWindow(GetHandle());
+  if (accessibility_channel_) {
+    accessibility_channel_->InvokeMethod("activateAssistant", nullptr);
+  }
+}
+
+LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
+    HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+  FlutterWindow* owner = reinterpret_cast<FlutterWindow*>(
+      GetWindowLongPtrW(window, GWLP_USERDATA));
+  if (message == WM_NCCREATE) {
+    const auto* create = reinterpret_cast<CREATESTRUCTW*>(lparam);
+    owner = static_cast<FlutterWindow*>(create->lpCreateParams);
+    SetWindowLongPtrW(window, GWLP_USERDATA,
+                      reinterpret_cast<LONG_PTR>(owner));
+  }
+  switch (message) {
+    case WM_MOUSEACTIVATE:
+      return MA_NOACTIVATE;
+    case WM_ERASEBKGND:
+      return 1;
+    case WM_LBUTTONUP:
+      if (owner != nullptr) owner->ActivateAssistant();
+      return 0;
+    case WM_PAINT: {
+      PAINTSTRUCT paint{};
+      HDC dc = BeginPaint(window, &paint);
+      RECT bounds{};
+      GetClientRect(window, &bounds);
+      HBRUSH transparent = CreateSolidBrush(kTransparentColor);
+      FillRect(dc, &bounds, transparent);
+      DeleteObject(transparent);
+
+      COLORREF status_color = RGB(19, 121, 109);
+      if (owner != nullptr && owner->floating_state_ == "listening") {
+        status_color = RGB(176, 53, 41);
+      } else if (owner != nullptr && owner->floating_state_ == "processing") {
+        status_color = RGB(202, 137, 34);
+      } else if (owner != nullptr && owner->floating_state_ == "speaking") {
+        status_color = RGB(50, 107, 177);
+      }
+
+      HBRUSH fill = CreateSolidBrush(status_color);
+      HPEN border = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
+      HGDIOBJ old_brush = SelectObject(dc, fill);
+      HGDIOBJ old_pen = SelectObject(dc, border);
+      Ellipse(dc, 7, 7, kFloatingButtonSize - 7, kFloatingButtonSize - 7);
+
+      HPEN icon_pen = CreatePen(PS_SOLID, 4, RGB(255, 255, 255));
+      HGDIOBJ previous_pen = SelectObject(dc, icon_pen);
+      HBRUSH icon_brush = CreateSolidBrush(RGB(255, 255, 255));
+      HGDIOBJ previous_brush = SelectObject(dc, icon_brush);
+      RoundRect(dc, 31, 22, 45, 43, 7, 7);
+      SelectObject(dc, GetStockObject(NULL_BRUSH));
+      Arc(dc, 25, 27, 51, 52, 25, 39, 51, 39);
+      MoveToEx(dc, 38, 51, nullptr);
+      LineTo(dc, 38, 57);
+      MoveToEx(dc, 31, 58, nullptr);
+      LineTo(dc, 45, 58);
+
+      SelectObject(dc, previous_brush);
+      SelectObject(dc, previous_pen);
+      DeleteObject(icon_brush);
+      DeleteObject(icon_pen);
+      SelectObject(dc, old_brush);
+      SelectObject(dc, old_pen);
+      DeleteObject(fill);
+      DeleteObject(border);
+      EndPaint(window, &paint);
+      return 0;
+    }
+    case WM_NCDESTROY:
+      SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+      return DefWindowProcW(window, message, wparam, lparam);
+  }
+  return DefWindowProcW(window, message, wparam, lparam);
+}
+
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
@@ -167,9 +294,26 @@ bool FlutterWindow::OnCreate() {
       flutter::MethodChannel<flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "liyabona/accessibility",
       &flutter::StandardMethodCodec::GetInstance());
+  accessibility_channel_->SetMethodCallHandler(
+      [this](const auto& call, auto result) {
+        if (call.method_name() == "setFloatingState") {
+          const std::string* state =
+              call.arguments() == nullptr
+                  ? nullptr
+                  : std::get_if<std::string>(call.arguments());
+          if (state != nullptr) SetFloatingState(*state);
+          result->Success(flutter::EncodableValue(true));
+        } else {
+          result->NotImplemented();
+        }
+      });
   accessibility_hotkey_registered_ = RegisterHotKey(
       GetHandle(), kReadActiveAppHotkey, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
       kReadActiveAppKey) != 0;
+  assistant_hotkey_registered_ = RegisterHotKey(
+      GetHandle(), kAssistantHotkey, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+      VK_SPACE) != 0;
+  CreateFloatingButton();
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -185,9 +329,17 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (floating_button_ != nullptr) {
+    DestroyWindow(floating_button_);
+    floating_button_ = nullptr;
+  }
   if (accessibility_hotkey_registered_) {
     UnregisterHotKey(GetHandle(), kReadActiveAppHotkey);
     accessibility_hotkey_registered_ = false;
+  }
+  if (assistant_hotkey_registered_) {
+    UnregisterHotKey(GetHandle(), kAssistantHotkey);
+    assistant_hotkey_registered_ = false;
   }
   accessibility_channel_.reset();
   if (flutter_controller_) {
@@ -212,7 +364,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
-    case kReadActiveAppMessage:
+    case WM_HOTKEY:
+      if (wparam == kAssistantHotkey) {
+        ActivateAssistant();
+        return 0;
+      }
       if (wparam == kReadActiveAppHotkey && accessibility_channel_) {
         HWND target = GetForegroundWindow();
         if (target == GetHandle()) {
@@ -232,6 +388,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
             std::make_unique<flutter::EncodableValue>(payload));
         return 0;
       }
+      break;
+    case WM_DISPLAYCHANGE:
+      PositionFloatingButton();
       break;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();

@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 1505)
+Total output lines: 68
+
 # Liyabona Reception
 
 Liyabona is an accessible reception workspace for TVET Student Support Services. It supports Android, iOS, Windows and web, with voice navigation, spoken screen summaries, keyboard and touch controls, larger text and high contrast.
@@ -14,6 +17,8 @@ Email drafts can be prepared and reviewed in Liyabona. Sending or receiving coll
 
 On Windows, switch to an email, Office document or another app and press **Ctrl+Alt+R**. Liyabona reads aloud text that the active app exposes through Windows UI Automation. This feature is read-only; the extracted text stays on the computer and is not added to chat or sent to Gemini. It can only read content exposed by the other app's accessibility support, and it does not sign in to mailboxes or modify external apps.
 
+The Windows app also shows a small floating microphone button above other apps. Click it, or press **Ctrl+Alt+Space**, to open Liyabona and start a voice session. The microphone is off until activated. Clicking the button again stops the session. Voice commands that change Liyabona records still require a spoken yes/no approval; reading text from another app remains a separate, local, read-only shortcut.
+
 ## Run locally
 
 ```sh
@@ -29,7 +34,7 @@ flutter build web --release
 
 Vercel uses `scripts/vercel-build.sh` to install Flutter 3.50.0 and build the web application from the connected Git repository. The static site is published from `build/web`, while `api/assistant.js` runs as a Vercel function.
 
-Use Android Studio or Xcode for the mobile targets. A local Windows build requires Visual Studio with the Desktop development with C++ workload.
+Use Android Studio or Xcode for the mobile targets. A l…5 tokens truncated… requires Visual Studio with the Desktop development with C++ workload.
 
 ## Build Windows with GitHub Actions
 

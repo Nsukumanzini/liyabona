@@ -295,6 +295,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   Future<Object?> _handleWindowsAccessibilityCall(MethodCall call) async {
+    if (call.method == 'activateAssistant') {
+      _handleAssistantButton();
+      return null;
+    }
     if (call.method != 'activeWindowText' || call.arguments is! Map) return null;
     final payload = Map<Object?, Object?>.from(call.arguments as Map);
     final title = payload['title']?.toString().trim() ?? '';
@@ -649,6 +653,20 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   void _refreshAssistantPopup() {
+    if (_isWindowsDesktop) {
+      final state = _listening
+          ? 'listening'
+          : (_processing || _assistantBusy)
+          ? 'processing'
+          : _ttsSpeaking
+          ? 'speaking'
+          : 'idle';
+      unawaited(
+        _windowsAccessibilityChannel
+            .invokeMethod<void>('setFloatingState', state)
+            .catchError((_) {}),
+      );
+    }
     final rebuild = _popupRebuild;
     if (rebuild == null || !mounted) return;
     try {
@@ -1380,7 +1398,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _pendingLocalVoiceCommand = null;
     _awaitingSessionChoice = false;
     _listenFailures = 0;
-    if (_isWindowsDesktop) await _offlineDataReady;
+    if (_isWindowsDesktop) {
+      try {
+        await _offlineDataReady.timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
     try {
       if (!await _audioRecorder.hasPermission()) {
         _assistantError =
@@ -5897,7 +5919,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Windows: switch to an email, Word document or other app, then press Control + Alt + R. Liyabona will read text that Windows makes available to accessibility tools. This read-only feature speaks the text on this computer; it does not send it to Gemini or change the other app.',
+              'Windows: the small Liyabona microphone button stays above other apps. Click it, or press Control + Alt + Space, to start a voice session. The microphone stays off until activated. To read an email or document, switch to it and press Control + Alt + R. Reading is local and read-only; it does not send screen text to Gemini or change the other app. Data changes still require your yes or no approval.',
               style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],
