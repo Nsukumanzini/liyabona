@@ -831,6 +831,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         if (found.isNotEmpty) {
           setState(() => found.first.checkedOut = DateTime.now());
           _go('Visitors');
+        } else {
+          _lastMutationNotice = 'I could not find that checked-in visitor. Nothing changed.';
         }
         break;
       case 'create_call':
@@ -924,6 +926,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             )
             .toList();
         if (found.isNotEmpty) setState(() => found.first.done = true);
+        if (found.isEmpty) {
+          _lastMutationNotice = 'I could not find that open task. Nothing changed.';
+        }
         _go('Tasks');
         break;
       case 'edit_record':
@@ -6780,8 +6785,3 @@ String _month(int m) => const [
 ][m - 1];
 String _weekday(DateTime d) => const [
   'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
