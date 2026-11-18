@@ -589,10 +589,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           .timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) {
         final body = jsonDecode(response.body);
-        final code = body is Map ? body['gatewayCode'] : null;
-        _assistantError = code == 'customer_verification_required'
-            ? 'Vercel AI Gateway needs a valid payment method before it can serve this model.'
-            : body is Map && body['error'] is String
+        _assistantError = body is Map && body['error'] is String
             ? body['error'] as String
             : 'AI service is temporarily unavailable.';
         return null;
