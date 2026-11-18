@@ -783,18 +783,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   Future<void> _askCopilot(String question) async {
     if (_assistantBusy || question.trim().isEmpty) return;
-    if (_isWindowsDesktop) {
-      await _offlineDataReady;
-      setState(() => _assistantBusy = true);
-      await _handleVoiceCommand(
-        question,
-        consultAi: false,
-        resumeVoice: false,
-        speakResponse: true,
-      );
-      if (mounted) setState(() => _assistantBusy = false);
-      return;
-    }
+    if (_isWindowsDesktop) await _offlineDataReady;
     if (_voiceSession) {
       await _speech.stop();
       _listening = false;
@@ -816,7 +805,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       );
       final transcript = _transcript.split('\n');
       answer =
-          'AI is temporarily unavailable. I used the built-in command helper instead. ${transcript.length > 1 ? transcript.skip(1).join(' ') : _answerLocally(question)}';
+          'Online AI is temporarily unavailable. I used the built-in command helper instead. ${transcript.length > 1 ? transcript.skip(1).join(' ') : _answerLocally(question)}';
     }
     _chat.add(_ChatLine(false, answer));
     if (mounted) setState(() => _assistantBusy = false);
