@@ -6271,3 +6271,6 @@ String _weekday(DateTime d) => const [
   'Wednesday',
   'Thursday',
   'Friday',
+  'Saturday',
+  'Sunday',
+][d.weekday - 1];
