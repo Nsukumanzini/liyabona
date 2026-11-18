@@ -42,9 +42,9 @@ The GitHub runner supplies the Windows build tools, so Visual Studio is not need
 
 ## Voice commands
 
-Start a voice session using **Talk to Liyabona**. Say a request, pause while Liyabona responds, then continue. Say **stop listening** to end the session, or choose **Stop voice**.
+Start a voice session using **Talk to Liyabona**. After each request, Liyabona asks whether to continue listening; say **continue** or **stop**. Opening a screen happens immediately. Before reading information or creating, editing, or deleting anything, Liyabona asks you to say **confirm** or **cancel**. Say **stop listening** at any time to end the session, or choose **Stop voice**.
 
-Online voice recognition sends a short recording to Gemini, which transcribes English (South Africa) and interprets the command in one request. If the online service is unreachable, Windows uses its installed speech recognizer. Voice-created notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage. Completing a task or checking out a visitor by voice requires the receptionist to confirm.
+Online voice recognition sends a short recording to Gemini, which transcribes English (South Africa) and interprets the command in one request. If the online service is unreachable, Windows uses its installed speech recognizer. Voice-created notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage. Voice actions that read or change information require confirmation before Liyabona performs them.
 
 Examples:
 
