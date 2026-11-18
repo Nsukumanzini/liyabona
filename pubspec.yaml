@@ -33,6 +33,7 @@ dependencies:
   flutter_tts: ^4.2.3
   speech_to_text: ^7.3.0
   http: ^1.6.0
+  record: ^7.2.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -47,6 +48,10 @@ dependency_overrides:
   # from the app runner so Windows does not load a separate plugin DLL.
   speech_to_text_windows:
     path: packages/speech_to_text_windows
+  # Link the recorder directly into liyabona.exe so Windows does not load an
+  # unsigned record_windows_plugin.dll.
+  record_windows:
+    path: packages/record_windows
 
 dev_dependencies:
   flutter_test:

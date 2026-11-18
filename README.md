@@ -6,9 +6,9 @@ The workspace includes a calendar, learner enquiries, notes, documents, email dr
 
 ## AI service setup
 
-Liyabona sends AI requests to Google's Gemini API through a small Vercel server endpoint. Windows speech recognition runs on the computer; recognized requests and screen context are sent to Google when a network connection is available. Built-in reception commands remain available if the AI service cannot respond.
+When a voice session is active and the computer is online, Liyabona sends a short, silence-trimmed audio clip to Google Gemini through Vercel for English (South Africa) transcription and command handling in one request. Gemini returns the transcript, action and a confidence score. The server rejects empty or low-confidence transcripts before the app can perform an action. Audio is held in memory by the app and is not saved as a recording. The Gemini API key stays on Vercel. If the network AI service is unavailable, Liyabona falls back to the device's speech recognizer.
 
-To enable AI replies, create a Gemini API key in Google AI Studio and add it to the Vercel project as the `GEMINI_API_KEY` environment variable, then redeploy the Vercel project. Keep the key on Vercel; never put it in Flutter or GitHub. Google lists a free tier for Gemini 2.5 Flash-Lite subject to usage limits. Google may use data sent through its free tier to improve its products. Confirm the college's data-handling requirements before entering learner or staff information.
+To enable transcription and AI replies, add the Gemini API key in Google AI Studio to the Vercel project as `GEMINI_API_KEY`, then redeploy. Keep the key on Vercel; never put it in Flutter or GitHub. Google AI Studio usage is subject to its current quotas and data terms. Confirm the college's data-handling requirements before sending learner or staff information.
 
 Email drafts can be prepared and reviewed in Liyabona. Sending or receiving college email requires Student Support's mailbox provider and secure access to be approved and configured by college IT.
 
@@ -44,7 +44,7 @@ The GitHub runner supplies the Windows build tools, so Visual Studio is not need
 
 Start a voice session using **Talk to Liyabona**. Say a request, pause while Liyabona responds, then continue. Say **stop listening** to end the session, or choose **Stop voice**.
 
-On Windows, voice recognition uses Windows SAPI and prefers English (South Africa) when that recognizer is installed. Otherwise, it uses another installed English recognizer. Recognition is performed on the computer; AI interpretation requires an internet connection. Voice-created notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage.
+Online voice recognition sends a short recording to Gemini, which transcribes English (South Africa) and interprets the command in one request. If the online service is unreachable, Windows uses its installed speech recognizer. Voice-created notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage. Completing a task or checking out a visitor by voice requires the receptionist to confirm.
 
 Examples:
 
@@ -58,4 +58,4 @@ Examples:
 - “Draft an email to Amina about financial aid.”
 - “Read this screen.”
 
-The app keeps the microphone off until a voice session is started. Web speech recognition depends on browser support and network availability.
+The app keeps the microphone off until a voice session is started. Voice commands are processed online when a connection is available, with device speech recognition as the fallback.

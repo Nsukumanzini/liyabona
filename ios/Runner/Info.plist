@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Liyabona uses the microphone only while you start a voice session.</string>
+	<string>Liyabona uses the microphone during a voice session to transcribe spoken receptionist commands.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Liyabona turns your spoken commands into receptionist actions.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

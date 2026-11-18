@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show sqrt;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
@@ -7,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
+import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,7 +35,19 @@ class LiyabonaApp extends StatefulWidget {
 class _LiyabonaAppState extends State<LiyabonaApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _speech = stt.SpeechToText();
+  final _audioRecorder = AudioRecorder();
   final _tts = FlutterTts();
+  StreamSubscription<Uint8List>? _audioSubscription;
+  Timer? _audioCheckTimer;
+  BytesBuilder _audioBuffer = BytesBuilder(copy: false);
+  DateTime? _audioStartedAt;
+  DateTime? _lastVoicedAt;
+  int _voicedSampleCount = 0;
+  int _recordingSampleRate = 16000;
+  int _recordingChannels = 1;
+  bool _forceOfflineSpeech = false;
+  bool _finishingAudio = false;
+  _AssistantResult? _pendingVoiceConfirmation;
   Future<void> _offlineDataReady = Future<void>.value();
   bool _speechReady = false;
   bool _preferOnDeviceSpeech = true;
@@ -491,6 +506,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   @override
   void dispose() {
     _listenRestartTimer?.cancel();
+    _audioCheckTimer?.cancel();
+    unawaited(_audioSubscription?.cancel());
+    unawaited(_audioRecorder.dispose());
     _speech.stop();
     _tts.stop();
     super.dispose();
@@ -559,11 +577,16 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
   }
 
-  Future<_AssistantResult?> _askModel(String text) async {
+  Future<_AssistantResult?> _askModel(
+    String text, {
+    String? audioBase64,
+  }) async {
+    if (text.trim().isEmpty && audioBase64 == null) return null;
     try {
       final history = _chat.toList();
       if (history.isNotEmpty &&
           history.last.user &&
+          text.isNotEmpty &&
           history.last.text == text) {
         history.removeLast();
       }
@@ -573,6 +596,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             headers: const {'Content-Type': 'application/json'},
             body: jsonEncode({
               'text': text,
+              if (audioBase64 != null) 'audio': audioBase64,
               'screen': _page,
               'summary': _pageSummary(),
               'history': history
@@ -586,7 +610,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
                   .toList(),
             }),
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(Duration(seconds: audioBase64 == null ? 8 : 25));
       if (response.statusCode != 200) {
         final body = jsonDecode(response.body);
         _assistantError = body is Map && body['error'] is String
@@ -784,7 +808,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   Future<void> _askCopilot(String question) async {
     if (_assistantBusy || question.trim().isEmpty) return;
     if (_isWindowsDesktop) await _offlineDataReady;
-    if (_voiceSession) {
+    final resumeVoice = _voiceSession;
+    if (resumeVoice) {
+      _audioCheckTimer?.cancel();
+      try {
+        await _audioRecorder.stop();
+      } catch (_) {}
+      await _audioSubscription?.cancel();
+      _audioSubscription = null;
       await _speech.stop();
       _listening = false;
     }
@@ -811,13 +842,21 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (mounted) setState(() => _assistantBusy = false);
     _refreshAssistantPopup();
     await _speak(answer);
+    if (resumeVoice && _voiceSession && mounted) await _listenOnce();
   }
 
   Future<void> _toggleVoice({bool greet = false}) async {
     if (_voiceSession || _listening) {
       _voiceSession = false;
       _processing = false;
+      _pendingVoiceConfirmation = null;
       _listenRestartTimer?.cancel();
+      _audioCheckTimer?.cancel();
+      try {
+        await _audioRecorder.stop();
+      } catch (_) {}
+      await _audioSubscription?.cancel();
+      _audioSubscription = null;
       await _speech.stop();
       _stopSpeaking();
       if (mounted)
@@ -829,8 +868,17 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       return;
     }
     _preferOnDeviceSpeech = true;
+    _forceOfflineSpeech = false;
     _listenFailures = 0;
     if (_isWindowsDesktop) await _offlineDataReady;
+    try {
+      if (!await _audioRecorder.hasPermission()) {
+        _assistantError =
+            'Microphone access is blocked. Allow it in Windows or browser settings.';
+      }
+    } catch (_) {
+      // The system speech service may still be available as the fallback.
+    }
     _speechReady = await _speech.initialize(
       onError: (error) {
         if (!mounted) return;
@@ -881,48 +929,41 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       },
     );
     if (!_speechReady) {
-      _assistantError = _isWindowsDesktop
-          ? 'Windows offline speech recognition is unavailable. Check Windows speech settings and microphone access.'
-          : 'Speech recognition is unavailable. Check microphone permission and the device speech service.';
-      if (greet) await _speak('Hello, how can I help you today?');
-      _refreshAssistantPopup();
-      return;
-    }
-    _assistantError = '';
-    try {
-      final supported = await _speech.locales();
-      final localeById = {
-        for (final locale in supported)
-          locale.localeId.replaceAll('_', '-'): locale,
-      };
-      _speechLocale = const [
-        'en-ZA',
-        'en-GB',
-        'en-AU',
-        'en-CA',
-        'en-IN',
-        'en-US',
-      ].firstWhere(localeById.containsKey, orElse: () => '');
-      if (_speechLocale!.isEmpty) _speechLocale = null;
-      if (_isWindowsDesktop && _speechLocale != 'en-ZA') {
-        final selectedLocale = _speechLocale;
-        final selectedName = selectedLocale == null
-            ? 'Windows default English'
-            : localeById[selectedLocale]!.name;
-        _assistantError =
-            'This computer does not have offline South African English recognition. Using $selectedName instead.';
-      } else {
-        _assistantError = '';
-      }
-    } catch (_) {
-      // Let the device choose its default locale if the list is unavailable.
       _speechLocale = null;
+      _assistantError =
+          'Built-in speech recognition is unavailable; online voice recognition will still be tried.';
+    } else {
+      _assistantError = '';
+      try {
+        final supported = await _speech.locales();
+        final localeById = {
+          for (final locale in supported)
+            locale.localeId.replaceAll('_', '-'): locale,
+        };
+        _speechLocale = const [
+          'en-ZA',
+          'en-GB',
+          'en-AU',
+          'en-CA',
+          'en-IN',
+          'en-US',
+        ].firstWhere(localeById.containsKey, orElse: () => '');
+        if (_speechLocale!.isEmpty) _speechLocale = null;
+        if (_isWindowsDesktop && _speechLocale != 'en-ZA') {
+          final selectedLocale = _speechLocale;
+          final selectedName = selectedLocale == null
+              ? 'Windows default English'
+              : localeById[selectedLocale]!.name;
+          _assistantError =
+              'Online transcription is set to South African English. The offline fallback will use $selectedName.';
+        }
+      } catch (_) {
+        _speechLocale = null;
+      }
     }
     setState(() {
       _voiceSession = true;
-      _transcript = _isWindowsDesktop
-          ? 'Listening offline on this computer'
-          : 'Listening';
+      _transcript = 'Ready for your voice.';
     });
     _refreshAssistantPopup();
     if (greet) {
@@ -940,6 +981,207 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   Future<void> _listenOnce() async {
+    if (!_voiceSession || !mounted || _processing || _listening) return;
+    if (_forceOfflineSpeech) {
+      await _listenOfflineOnce();
+      return;
+    }
+    _listenRestartTimer?.cancel();
+    try {
+      if (!await _audioRecorder.hasPermission()) {
+        throw StateError('Microphone permission was not granted.');
+      }
+      _audioBuffer = BytesBuilder(copy: false);
+      _audioStartedAt = DateTime.now();
+      _lastVoicedAt = null;
+      _voicedSampleCount = 0;
+      _finishingAudio = false;
+      _recordingSampleRate = 16000;
+      _recordingChannels = 1;
+      await _audioRecorder.setOnConfigChanged((config) {
+        _recordingSampleRate = config.sampleRate;
+        _recordingChannels = config.numChannels;
+      });
+      final stream = await _audioRecorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+          autoGain: true,
+          echoCancel: true,
+          noiseSuppress: true,
+        ),
+      );
+      _audioSubscription = stream.listen(
+        _collectAudio,
+        onError: (_) => unawaited(_useOfflineSpeech()),
+        cancelOnError: true,
+      );
+      if (mounted) {
+        setState(() {
+          _listening = true;
+          _transcript = 'Listening for your voice…';
+          _assistantError = '';
+        });
+      }
+      _refreshAssistantPopup();
+      _audioCheckTimer?.cancel();
+      _audioCheckTimer = Timer.periodic(const Duration(milliseconds: 150), (_) {
+        if (!_voiceSession || !mounted || _finishingAudio) return;
+        final now = DateTime.now();
+        if (_greetingPlaying) {
+          _audioBuffer = BytesBuilder(copy: false);
+          _voicedSampleCount = 0;
+          _lastVoicedAt = null;
+          _audioStartedAt = now;
+          return;
+        }
+        final startedAt = _audioStartedAt ?? now;
+        final lastVoicedAt = _lastVoicedAt;
+        if (lastVoicedAt != null &&
+            now.difference(lastVoicedAt) >= const Duration(milliseconds: 900)) {
+          unawaited(_finishAudioCapture());
+        } else if (lastVoicedAt == null &&
+            now.difference(startedAt) >= const Duration(seconds: 8)) {
+          unawaited(_finishAudioCapture(noSpeech: true));
+        } else if (now.difference(startedAt) >= const Duration(seconds: 15)) {
+          unawaited(_finishAudioCapture());
+        }
+      });
+    } catch (_) {
+      await _useOfflineSpeech();
+    }
+  }
+
+  void _collectAudio(Uint8List chunk) {
+    if (_greetingPlaying || chunk.length < 2 || _finishingAudio) return;
+    _audioBuffer.add(chunk);
+    var sumSquares = 0.0;
+    var count = 0;
+    final data = ByteData.sublistView(chunk);
+    for (var offset = 0; offset + 1 < chunk.length; offset += 2) {
+      final sample = data.getInt16(offset, Endian.little) / 32768.0;
+      sumSquares += sample * sample;
+      count++;
+    }
+    if (count == 0) return;
+    final rms = sqrt(sumSquares / count);
+    // Ignore room tone and light handling noise. A few hundred milliseconds
+    // of sustained voice energy are required before any audio is sent online.
+    if (rms >= 0.008) {
+      _voicedSampleCount += count;
+      _lastVoicedAt = DateTime.now();
+    }
+  }
+
+  Future<void> _finishAudioCapture({bool noSpeech = false}) async {
+    if (_finishingAudio) return;
+    _finishingAudio = true;
+    _audioCheckTimer?.cancel();
+    _audioCheckTimer = null;
+    try {
+      await _audioRecorder.stop();
+    } catch (_) {}
+    await _audioSubscription?.cancel();
+    _audioSubscription = null;
+    if (!_voiceSession || !mounted) {
+      _finishingAudio = false;
+      return;
+    }
+    if (noSpeech || _voicedSampleCount < 6000) {
+      _finishingAudio = false;
+      setState(() {
+        _listening = false;
+        _transcript = 'I did not hear clear speech. Please try again.';
+      });
+      _refreshAssistantPopup();
+      await _speak('I did not hear clear speech. Please try again.');
+      _scheduleListenRestart();
+      return;
+    }
+
+    final pcm = _audioBuffer.takeBytes();
+    final wav = _wrapPcmAsWav(pcm);
+    setState(() {
+      _listening = false;
+      _processing = true;
+      _transcript = 'Transcribing your request…';
+    });
+    _refreshAssistantPopup();
+    final result = await _askModel('', audioBase64: base64Encode(wav));
+    _finishingAudio = false;
+    if (!_voiceSession || !mounted) return;
+    if (result == null) {
+      await _useOfflineSpeech();
+      return;
+    }
+    final cleaned = result.transcript.trim();
+    if (cleaned.length < 2 || result.confidence < 0.72) {
+      _processing = false;
+      setState(() {
+        _transcript = 'I could not make out those words. Please try again.';
+      });
+      _refreshAssistantPopup();
+      await _speak('I could not make out those words. Please try again.');
+      _scheduleListenRestart();
+      return;
+    }
+    _forceOfflineSpeech = false;
+    setState(() => _transcript = 'I heard: $cleaned');
+    _refreshAssistantPopup();
+    await _handleVoiceCommand(
+      cleaned,
+      assistantResultOverride: result,
+    );
+  }
+
+  Uint8List _wrapPcmAsWav(Uint8List pcm) {
+    final wav = Uint8List(44 + pcm.length);
+    final header = ByteData.sublistView(wav);
+    void fourCc(int offset, String value) {
+      wav.setRange(offset, offset + 4, ascii.encode(value));
+    }
+
+    fourCc(0, 'RIFF');
+    header.setUint32(4, 36 + pcm.length, Endian.little);
+    fourCc(8, 'WAVE');
+    fourCc(12, 'fmt ');
+    header.setUint32(16, 16, Endian.little);
+    header.setUint16(20, 1, Endian.little);
+    header.setUint16(22, _recordingChannels, Endian.little);
+    header.setUint32(24, _recordingSampleRate, Endian.little);
+    header.setUint32(
+      28,
+      _recordingSampleRate * _recordingChannels * 2,
+      Endian.little,
+    );
+    header.setUint16(32, _recordingChannels * 2, Endian.little);
+    header.setUint16(34, 16, Endian.little);
+    fourCc(36, 'data');
+    header.setUint32(40, pcm.length, Endian.little);
+    wav.setRange(44, wav.length, pcm);
+    return wav;
+  }
+
+  Future<void> _useOfflineSpeech() async {
+    if (!_voiceSession || !mounted) return;
+    _audioCheckTimer?.cancel();
+    _audioCheckTimer = null;
+    try {
+      await _audioRecorder.stop();
+    } catch (_) {}
+    await _audioSubscription?.cancel();
+    _audioSubscription = null;
+    _finishingAudio = false;
+    _forceOfflineSpeech = true;
+    _processing = false;
+    _assistantError =
+        'Online speech recognition is unavailable. Using this device’s built-in speech recognition.';
+    _refreshAssistantPopup();
+    await _listenOfflineOnce();
+  }
+
+  Future<void> _listenOfflineOnce() async {
     if (!_voiceSession || !mounted || _processing || _listening) return;
     _listenRestartTimer?.cancel();
     setState(() => _listening = true);
@@ -1038,6 +1280,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     bool consultAi = true,
     bool resumeVoice = true,
     bool speakResponse = true,
+    _AssistantResult? assistantResultOverride,
   }) async {
     final command = phrase.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
     final stopCommand =
@@ -1047,11 +1290,16 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         command.contains('close assistant');
     final stopSpeechOnly = RegExp(
       r'^(stop|stop speaking|stop talking|be quiet|quiet|cancel|hold on|wait)[.! ]*$',
-    ).hasMatch(command);
+    ).hasMatch(command) &&
+        !(_pendingVoiceConfirmation != null &&
+            RegExp(r'^(cancel|no|never mind)[.! ]*$').hasMatch(command));
     if (stopCommand || stopSpeechOnly) {
       await _speech.stop();
       _stopSpeaking();
-      if (stopCommand) _voiceSession = false;
+      if (stopCommand) {
+        _voiceSession = false;
+        _pendingVoiceConfirmation = null;
+      }
       _processing = false;
       if (mounted) {
         setState(() {
@@ -1065,13 +1313,66 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
       return;
     }
+    var response =
+        'I heard $phrase. Say help to hear some commands I understand.';
+    final pendingConfirmation = _pendingVoiceConfirmation;
+    if (pendingConfirmation != null) {
+      if (RegExp(r'^(confirm|yes|do it|go ahead)[.! ]*$').hasMatch(command)) {
+        _pendingVoiceConfirmation = null;
+        _applyAssistantAction(pendingConfirmation);
+        response = 'Confirmed. ${pendingConfirmation.reply}';
+      } else if (RegExp(r'^(cancel|no|never mind)[.! ]*$').hasMatch(command)) {
+        _pendingVoiceConfirmation = null;
+        response = 'Cancelled. I did not make that change.';
+      } else {
+        response = 'Please say confirm to continue or cancel to leave it unchanged.';
+      }
+      _chat.add(_ChatLine(true, phrase));
+      _chat.add(_ChatLine(false, response));
+      if (mounted) {
+        setState(() {
+          _transcript = '“$phrase”\n$response';
+          _listening = false;
+        });
+      }
+      _refreshAssistantPopup();
+      if (speakResponse) await _speak(response);
+      _processing = false;
+      if (resumeVoice && _voiceSession && mounted) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        await _listenOnce();
+      }
+      return;
+    }
     _heardPhrase = phrase;
     _interpretation = 'Checking your request with Liyabona AI';
     _matchConfidence = null;
     if (consultAi) {
       await _speech.stop();
       _listening = false;
-      final result = await _askModel(phrase);
+      final result = assistantResultOverride ?? await _askModel(phrase);
+      if (result != null &&
+          const {'complete_task', 'visitor_checkout'}.contains(result.action)) {
+        _pendingVoiceConfirmation = result;
+        final confirmation =
+            'I heard: $phrase. ${result.reply} Say confirm to continue or cancel.';
+        _chat.add(_ChatLine(true, phrase));
+        _chat.add(_ChatLine(false, confirmation));
+        if (mounted) {
+          setState(() {
+            _transcript = '“$phrase”\n$confirmation';
+            _listening = false;
+          });
+        }
+        _refreshAssistantPopup();
+        if (speakResponse) await _speak(confirmation);
+        _processing = false;
+        if (resumeVoice && _voiceSession && mounted) {
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+          await _listenOnce();
+        }
+        return;
+      }
       if (result != null &&
           result.action != 'answer' &&
           result.action != 'clarify') {
@@ -1095,6 +1396,25 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         if (speakResponse) await _speak(result.reply);
         _processing = false;
         _refreshAssistantPopup();
+        if (resumeVoice && _voiceSession && mounted) {
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+          await _listenOnce();
+        }
+        return;
+      }
+      if (result != null && result.action == 'clarify') {
+        _chat.add(_ChatLine(true, phrase));
+        _chat.add(_ChatLine(false, result!.reply));
+        _interpretation = 'Liyabona needs one more detail';
+        if (mounted) {
+          setState(() {
+            _transcript = '“$phrase”\n${result.reply}';
+            _listening = false;
+          });
+        }
+        _refreshAssistantPopup();
+        if (speakResponse) await _speak(result.reply);
+        _processing = false;
         if (resumeVoice && _voiceSession && mounted) {
           await Future<void>.delayed(const Duration(milliseconds: 350));
           await _listenOnce();
@@ -1141,8 +1461,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         return;
       }
     }
-    var response =
-        'I heard $phrase. Say help to hear some commands I understand.';
     _heardPhrase = phrase;
     _interpretation = 'Checking your request against this app';
     _matchConfidence = null;
@@ -2313,7 +2631,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   void _closeAssistantPopup() {
     _voiceSession = false;
     _processing = false;
+    _pendingVoiceConfirmation = null;
     _listening = false;
+    _audioCheckTimer?.cancel();
+    unawaited(_audioRecorder.stop());
+    unawaited(_audioSubscription?.cancel());
+    _audioSubscription = null;
     unawaited(_speech.stop());
     _stopSpeaking();
     final navigator = _navigatorKey.currentState;
@@ -3529,7 +3852,7 @@ class _LocalNotice extends StatelessWidget {
         SizedBox(width: 8),
         Expanded(
           child: Text(
-            'The microphone starts only when requested. Windows records are saved on this computer; web and mobile records stay in the current session. When online, Liyabona AI sends recognized text, recent chat and screen context to Google Gemini through Vercel. College systems and mailboxes are not connected.',
+            'The microphone starts only when you open a voice session. Online, Liyabona sends short audio clips through its secure Vercel service to Google Gemini for English (South Africa) transcription and command handling. Audio clips are held in memory by the app and are not saved as recordings; Google processes submitted audio under its API data terms. When online recognition is unavailable, the app can use the device speech service instead. College systems and mailboxes are not connected.',
             style: TextStyle(
               fontSize: 10,
               height: 1.45,
@@ -5725,11 +6048,15 @@ class _AssistantResult {
     required this.destination,
     required this.fields,
     required this.needsClarification,
+    this.transcript = '',
+    this.confidence = 0,
   });
 
   final String reply, action, destination;
   final Map<String, String> fields;
   final bool needsClarification;
+  final String transcript;
+  final double confidence;
 
   factory _AssistantResult.fromJson(Map<String, dynamic> json) {
     final raw = json['fields'];
@@ -5751,6 +6078,12 @@ class _AssistantResult {
           : '',
       fields: fields,
       needsClarification: json['needs_clarification'] == true,
+      transcript: json['transcript'] is String
+          ? json['transcript'] as String
+          : '',
+      confidence: json['confidence'] is num
+          ? (json['confidence'] as num).toDouble()
+          : 0,
     );
   }
 }

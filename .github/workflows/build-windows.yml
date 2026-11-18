@@ -37,6 +37,9 @@ jobs:
           if (Test-Path "$release/flutter_tts_plugin.dll") {
             throw "The separate text-to-speech DLL was built. Check the local dependency override."
           }
+          if (Test-Path "$release/record_windows_plugin.dll") {
+            throw "The separate audio recorder DLL was built. Check the static Windows recorder override."
+          }
           if (-not (Test-Path "$release/liyabona.exe")) {
             throw "The Windows executable was not produced."
           }
