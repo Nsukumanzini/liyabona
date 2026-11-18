@@ -25,6 +25,8 @@ Build the web application with:
 flutter build web --release
 ```
 
+Vercel uses `scripts/vercel-build.sh` to install Flutter 3.50.0 and build the web application from the connected Git repository. The static site is published from `build/web`, while `api/assistant.js` runs as a Vercel function.
+
 Use Android Studio or Xcode for the mobile targets. A local Windows build requires Visual Studio with the Desktop development with C++ workload.
 
 ## Build Windows with GitHub Actions
