@@ -8,6 +8,9 @@ SDK_URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/li
 curl --fail --location --retry 3 --output "$SDK_ARCHIVE" "$SDK_URL"
 tar -xf "$SDK_ARCHIVE" -C /tmp
 export PATH="/tmp/flutter/bin:$PATH"
+# Vercel's build container may run Flutter as a different user than the SDK
+# archive owner. Mark the official SDK checkout as trusted for Git operations.
+git config --global --add safe.directory /tmp/flutter
 
 flutter --version
 flutter pub get
