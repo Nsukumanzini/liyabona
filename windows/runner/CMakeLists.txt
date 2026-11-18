@@ -64,6 +64,7 @@ target_link_libraries(${BINARY_NAME} PRIVATE
   flutter_wrapper_plugin
   ole32
   oleaut32
+  UIAutomationCore
   uuid
   sapi)
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/flutter_window.cpp"

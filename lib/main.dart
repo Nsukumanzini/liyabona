@@ -23,6 +23,7 @@ const amber = Color(0xFFFFF1D8);
 const redSoft = Color(0xFFFFE9E5);
 const _assistantEndpoint =
     'https://campuscare-reception-demo.vercel.app/api/assistant';
+const _windowsAccessibilityChannel = MethodChannel('liyabona/accessibility');
 
 void main() => runApp(const LiyabonaApp());
 
@@ -253,6 +254,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     );
     if (_isWindowsDesktop) _offlineDataReady = _loadOfflineData();
     _knowledgeReady = _loadKnowledge();
+    if (_isWindowsDesktop) {
+      _windowsAccessibilityChannel.setMethodCallHandler(
+        _handleWindowsAccessibilityCall,
+      );
+    }
     _tts.setLanguage('en-ZA');
     _tts.setSpeechRate(.5);
     _tts.awaitSpeakCompletion(false);
@@ -286,6 +292,29 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     } catch (_) {
       // Keep the Knowledge page editable if local storage is unavailable.
     }
+  }
+
+  Future<Object?> _handleWindowsAccessibilityCall(MethodCall call) async {
+    if (call.method != 'activeWindowText' || call.arguments is! Map) return null;
+    final payload = Map<Object?, Object?>.from(call.arguments as Map);
+    final title = payload['title']?.toString().trim() ?? '';
+    final text = payload['text']?.toString().trim() ?? '';
+    if (text.isEmpty) {
+      const message =
+          'I could not read text from that window. Try moving to the email or document body and press Control Alt R again.';
+      _announce(message);
+      await _speak(message);
+      return null;
+    }
+    // Keep this read local: external email and document content is spoken by
+    // Windows TTS and is never added to chat history or sent to Gemini.
+    final content = text.length > 8000 ? text.substring(0, 8000) : text;
+    final heading = title.isEmpty ? 'the active app' : title;
+    _transcript = 'Reading accessible text from $heading.';
+    _refreshAssistantPopup();
+    _stopSpeaking();
+    await _speak('Reading $heading. $content');
+    return null;
   }
 
   Future<void> _saveKnowledge(String value) async {
@@ -543,6 +572,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   @override
   void dispose() {
+    if (_isWindowsDesktop) {
+      _windowsAccessibilityChannel.setMethodCallHandler(null);
+    }
     _listenRestartTimer?.cancel();
     _audioCheckTimer?.cancel();
     unawaited(_audioSubscription?.cancel());
@@ -706,8 +738,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     bool yesNoConfirmation = false,
   }) async {
     if (text.trim().isEmpty && audioBase64 == null) return null;
-    await _knowledgeReady;
     try {
+      // Do not let a stalled preferences plugin block every AI request.
+      try {
+        await _knowledgeReady.timeout(const Duration(seconds: 2));
+      } catch (_) {}
       final history = _chat.toList();
       if (history.isNotEmpty &&
           history.last.user &&
@@ -738,7 +773,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
                   .toList(),
             }),
           )
-          .timeout(Duration(seconds: audioBase64 == null ? 8 : 25));
+          .timeout(Duration(seconds: audioBase64 == null ? 26 : 35));
       if (response.statusCode != 200) {
         final body = jsonDecode(response.body);
         _assistantError = body is Map && body['error'] is String
@@ -1227,7 +1262,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   Future<void> _askCopilot(String question) async {
     if (_assistantBusy || question.trim().isEmpty) return;
-    if (_isWindowsDesktop) await _offlineDataReady;
+    if (_isWindowsDesktop) {
+      try {
+        await _offlineDataReady.timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
     final resumeVoice = _voiceSession;
     if (resumeVoice) {
       _audioCheckTimer?.cancel();
@@ -5855,6 +5894,11 @@ class _CopilotPageState extends State<_CopilotPage> {
                 fontWeight: FontWeight.w700,
                 color: forest,
               ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Windows: switch to an email, Word document or other app, then press Control + Alt + R. Liyabona will read text that Windows makes available to accessibility tools. This read-only feature speaks the text on this computer; it does not send it to Gemini or change the other app.',
+              style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],
         ),

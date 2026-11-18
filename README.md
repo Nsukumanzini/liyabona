@@ -12,6 +12,8 @@ To enable transcription and AI replies, add the Gemini API key in Google AI Stud
 
 Email drafts can be prepared and reviewed in Liyabona. Sending or receiving college email requires Student Support's mailbox provider and secure access to be approved and configured by college IT.
 
+On Windows, switch to an email, Office document or another app and press **Ctrl+Alt+R**. Liyabona reads aloud text that the active app exposes through Windows UI Automation. This feature is read-only; the extracted text stays on the computer and is not added to chat or sent to Gemini. It can only read content exposed by the other app's accessibility support, and it does not sign in to mailboxes or modify external apps.
+
 ## Run locally
 
 ```sh
