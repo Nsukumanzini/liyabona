@@ -139,6 +139,21 @@ std::wstring ReadAccessibleText(HWND target, std::wstring* title) {
   if (uninitialize_com) CoUninitialize();
   return output;
 }
+
+flutter::EncodableMap ReadForegroundAppText(HWND app_window) {
+  HWND target = GetForegroundWindow();
+  if (target == app_window) target = nullptr;
+  std::wstring title;
+  const std::wstring text = target == nullptr
+      ? L""
+      : ReadAccessibleText(target, &title);
+  flutter::EncodableMap payload;
+  payload[flutter::EncodableValue("title")] =
+      flutter::EncodableValue(ToUtf8(title));
+  payload[flutter::EncodableValue("text")] =
+      flutter::EncodableValue(ToUtf8(text));
+  return payload;
+}
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -302,7 +317,10 @@ bool FlutterWindow::OnCreate() {
       &flutter::StandardMethodCodec::GetInstance());
   accessibility_channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
-        if (call.method_name() == "setFloatingState") {
+        if (call.method_name() == "readActiveApp") {
+          result->Success(
+              flutter::EncodableValue(ReadForegroundAppText(GetHandle())));
+        } else if (call.method_name() == "setFloatingState") {
           const std::string* state =
               call.arguments() == nullptr
                   ? nullptr
@@ -376,22 +394,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         return 0;
       }
       if (wparam == kReadActiveAppHotkey && accessibility_channel_) {
-        HWND target = GetForegroundWindow();
-        if (target == GetHandle()) {
-          target = nullptr;
-        }
-        std::wstring title;
-        const std::wstring text = target == nullptr
-            ? L""
-            : ReadAccessibleText(target, &title);
-        flutter::EncodableMap payload;
-        payload[flutter::EncodableValue("title")] =
-            flutter::EncodableValue(ToUtf8(title));
-        payload[flutter::EncodableValue("text")] =
-            flutter::EncodableValue(ToUtf8(text));
         accessibility_channel_->InvokeMethod(
             "activeWindowText",
-            std::make_unique<flutter::EncodableValue>(payload));
+            std::make_unique<flutter::EncodableValue>(
+                ReadForegroundAppText(GetHandle())));
         return 0;
       }
       break;

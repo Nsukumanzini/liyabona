@@ -311,8 +311,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     final title = payload['title']?.toString().trim() ?? '';
     final text = payload['text']?.toString().trim() ?? '';
     if (text.isEmpty) {
-      const message =
-          'I could not read text from that window. Try moving to the email or document body and press Control Alt R again.';
+      const message = 'I could not read text from that app.';
       _announce(message);
       await _speak(message);
       return null;
@@ -326,6 +325,50 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _stopSpeaking();
     await _speak('Reading $heading. $content');
     return null;
+  }
+
+  bool _isWindowsScreenReadCommand(String command) =>
+      RegExp(
+        r'^(?:(?:please|can you|could you)\s+)?(?:read(?:\s+(?:the|this|my|current|active)\s+screen|\s+screen|\s+this\s+window)?|ready)[.!? ]*$',
+      ).hasMatch(command.trim().toLowerCase());
+
+  Future<void> _readActiveWindowsScreen() async {
+    await _speech.stop();
+    _listening = false;
+    _processing = true;
+    _refreshAssistantPopup();
+    try {
+      final payload = await _windowsAccessibilityChannel
+          .invokeMapMethod<String, String>('readActiveApp');
+      final title = payload?['title']?.trim() ?? '';
+      final text = payload?['text']?.trim() ?? '';
+      if (text.isEmpty) {
+        const message = 'I could not read text from that app.';
+        _transcript = message;
+        if (mounted) setState(() => _listening = false);
+        await _speak(message);
+      } else {
+        // External app text stays on this PC: it is read aloud locally and is
+        // never copied into the chat or sent to the AI service.
+        final content = text.length > 8000 ? text.substring(0, 8000) : text;
+        final heading = title.isEmpty ? 'the active app' : title;
+        _transcript = 'Reading accessible text from $heading.';
+        if (mounted) setState(() => _listening = false);
+        await _speak('Reading $heading. $content');
+      }
+    } on PlatformException {
+      const message = 'I could not read text from that app.';
+      _transcript = message;
+      await _speak(message);
+    } catch (_) {
+      const message = 'I could not read text from that app.';
+      _transcript = message;
+      await _speak(message);
+    } finally {
+      _processing = false;
+      _refreshAssistantPopup();
+      if (_voiceSession && mounted) await _stopVoiceAfterTask();
+    }
   }
 
   Future<void> _loadWakeWordPreference() async {
@@ -2001,6 +2044,13 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
       return;
     }
+    if (_isWindowsDesktop && _isWindowsScreenReadCommand(command)) {
+      _heardPhrase = phrase;
+      _interpretation = 'Reading text from the active app';
+      _chat.add(_ChatLine(true, phrase));
+      await _readActiveWindowsScreen();
+      return;
+    }
     var response = 'Repeat again.';
     _heardPhrase = phrase;
     _interpretation = 'Checking your request with Liyabona AI';
@@ -2009,6 +2059,13 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       await _speech.stop();
       _listening = false;
       final result = assistantResultOverride ?? await _askModel(phrase);
+      if (_isWindowsDesktop && result?.action == 'read_screen') {
+        _heardPhrase = phrase;
+        _interpretation = 'Reading text from the active app';
+        _chat.add(_ChatLine(true, phrase));
+        await _readActiveWindowsScreen();
+        return;
+      }
       if (result != null &&
           _requiresAssistantConfirmation(result.action, command)) {
         final confirmation = _confirmationPrompt(phrase, result);
@@ -2225,7 +2282,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       response = 'Voice session ended.';
     } else if (command.contains('help') ||
         command.contains('what can you do')) {
-      response = 'You can ask me to open a screen, create a note or task, edit a saved record, draft an email, organise a visitor check-in, or read information. I stop listening after each request.';
+      response = 'You can ask me to open a screen, create a note or task, edit a saved record, draft an email, organise a visitor check-in, or say read the screen to hear text from the active app. I stop listening after each request.';
     } else if (command.contains('read this screen') ||
         command.contains('summarise this screen') ||
         command.contains('summarize this screen') ||
