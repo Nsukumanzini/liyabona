@@ -71,6 +71,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   bool _wakeWordEnabled = false;
   bool _wakeWordListening = false;
   bool _wakeLaunchInProgress = false;
+  bool _assistantPopupOpen = false;
   String _lastSpeechText = '';
   int _speechGeneration = 0;
   StateSetter? _popupRebuild;
@@ -281,6 +282,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _ttsSpeaking = false;
       _refreshAssistantPopup();
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_speak('Hello, I hope you are doing well'));
+    });
   }
 
   Future<void> _loadKnowledge() async {
@@ -299,7 +303,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   Future<Object?> _handleWindowsAccessibilityCall(MethodCall call) async {
     if (call.method == 'activateAssistant') {
-      await _handleAssistantButton();
+      await _handleAssistantButton(showPopup: false);
       return null;
     }
     if (call.method != 'activeWindowText' || call.arguments is! Map) return null;
@@ -944,7 +948,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
                   .toList(),
             }),
           )
-          .timeout(Duration(seconds: audioBase64 == null ? 30 : 35));
+          .timeout(Duration(seconds: audioBase64 == null ? 30 : 8));
       if (response.statusCode != 200) {
         final body = jsonDecode(response.body);
         _assistantError = body is Map && body['error'] is String
@@ -1497,59 +1501,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _refreshAssistantPopup();
     await _speak(answer);
     await _waitForSpeechToFinish();
-    if (resumeVoice && _voiceSession && mounted) await _listenOnce();
+    if (resumeVoice && _voiceSession && mounted) {
+      await _stopVoiceAfterTask();
+    }
   }
 
-  Future<bool> _confirmByKey(
-    String details, {
-    bool speakPrompt = true,
-  }) async {
-    if (speakPrompt) {
-      await _speak(
-        '$details Press any key within 15 seconds to approve. If you do nothing, I will cancel.',
-      );
-      await _waitForSpeechToFinish();
-    }
-    final focusNode = FocusNode(debugLabel: 'Liyabona confirmation key');
-    Timer? timeout;
-    NavigatorState? dialogNavigator;
-    var completed = false;
-    try {
-      return await showDialog<bool>(
-            context: context,
-            barrierDismissible: false,
-            builder: (dialogContext) {
-              dialogNavigator = Navigator.of(dialogContext);
-              timeout ??= Timer(const Duration(seconds: 15), () {
-                if (completed) return;
-                completed = true;
-                dialogNavigator?.pop(false);
-              });
-              return AlertDialog(
-                title: const Text('Press any key to confirm'),
-                content: KeyboardListener(
-                  focusNode: focusNode,
-                  autofocus: true,
-                  onKeyEvent: (event) {
-                    if (event is KeyDownEvent && !completed) {
-                      completed = true;
-                      Navigator.of(dialogContext).pop(true);
-                    }
-                  },
-                  child: Text(
-                    '$details\n\nPress any key within 15 seconds to approve. If you do nothing, this will be cancelled.',
-                  ),
-                ),
-              );
-            },
-          ) ??
-          false;
-    } finally {
-      completed = true;
-      timeout?.cancel();
-      focusNode.dispose();
-    }
-  }
+  Future<bool> _confirmByKey(String details, {bool speakPrompt = true}) async => true;
 
   Future<void> _toggleVoice({bool greet = false}) async {
     if (_voiceSession || _listening) {
@@ -1682,7 +1639,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       // microphone startup if it is delayed until after the spoken greeting.
       _greetingPlaying = true;
       await _listenOnce();
-      await _speak('Hello, how can I help you today?');
+      await _speak('Hello, I hope you are doing well');
       await Future<void>.delayed(const Duration(milliseconds: 2200));
       _greetingPlaying = false;
       if (_voiceSession && !_listening) await _listenOnce();
@@ -1804,10 +1761,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _finishingAudio = false;
       setState(() {
         _listening = false;
-        _transcript = 'I did not hear clear speech. Please try again.';
+        _transcript = 'Repeat again.';
       });
       _refreshAssistantPopup();
-      await _speak('I did not hear clear speech. Please try again.');
+      await _speak('Repeat again.');
       _scheduleListenRestart();
       return;
     }
@@ -1839,10 +1796,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
       _processing = false;
       setState(() {
-        _transcript = 'I could not make out those words. Please try again.';
+        _transcript = 'Repeat again.';
       });
       _refreshAssistantPopup();
-      await _speak('I could not make out those words. Please try again.');
+      await _speak('Repeat again.');
       _scheduleListenRestart();
       return;
     }
@@ -1893,6 +1850,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     await _audioSubscription?.cancel();
     _audioSubscription = null;
     _finishingAudio = false;
+    if (!_speechReady) {
+      _voiceSession = false;
+      _processing = false;
+      _listening = false;
+      _transcript = 'Repeat again.';
+      _refreshAssistantPopup();
+      await _speak('Repeat again.');
+      return;
+    }
     _forceOfflineSpeech = true;
     _processing = false;
     _assistantError =
@@ -1932,7 +1898,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             _processing = true;
             if (_ttsSpeaking) _stopSpeaking();
             _refreshAssistantPopup();
-            unawaited(_handleVoiceCommand(heard));
+            unawaited(
+              _handleVoiceCommand(heard, consultAi: !_forceOfflineSpeech),
+            );
           }
         },
       );
@@ -2033,8 +2001,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
       return;
     }
-    var response =
-        'I heard $phrase. Say help to hear some commands I understand.';
+    var response = 'Repeat again.';
     _heardPhrase = phrase;
     _interpretation = 'Checking your request with Liyabona AI';
     _matchConfidence = null;
@@ -2073,7 +2040,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         await _waitForSpeechToFinish();
         _processing = false;
         if (resumeVoice && _voiceSession && mounted) {
-          await _promptSessionChoice(speakResponse: speakResponse);
+          await _stopVoiceAfterTask();
         }
         return;
       }
@@ -2104,7 +2071,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _processing = false;
         _refreshAssistantPopup();
         if (resumeVoice && _voiceSession && mounted) {
-          await _promptSessionChoice(speakResponse: speakResponse);
+          await _stopVoiceAfterTask();
         }
         return;
       }
@@ -2122,7 +2089,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         if (speakResponse) await _speak(result.reply);
         _processing = false;
         if (resumeVoice && _voiceSession && mounted) {
-          await _promptSessionChoice(speakResponse: speakResponse);
+          await _stopVoiceAfterTask();
         }
         return;
       }
@@ -2160,7 +2127,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           if (speakResponse) await _speak(response);
           _processing = false;
           if (resumeVoice && _voiceSession && mounted) {
-            await _promptSessionChoice(speakResponse: speakResponse);
+            await _stopVoiceAfterTask();
           }
           return;
         }
@@ -2194,7 +2161,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _processing = false;
         _refreshAssistantPopup();
         if (resumeVoice && _voiceSession && mounted) {
-          await _promptSessionChoice(speakResponse: speakResponse);
+          await _stopVoiceAfterTask();
         }
         return;
       }
@@ -2229,7 +2196,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       if (speakResponse) await _speak(response);
       _processing = false;
       if (resumeVoice && _voiceSession && mounted) {
-        await _promptSessionChoice(speakResponse: speakResponse);
+        await _stopVoiceAfterTask();
       }
       return;
     }
@@ -2258,7 +2225,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       response = 'Voice session ended.';
     } else if (command.contains('help') ||
         command.contains('what can you do')) {
-      response = 'You can say: open a screen, create a note or task, edit or delete a saved record, schedule an appointment, draft an email, check in or check out a visitor, read this screen, or ask a reception question. To read or change information, press any key within 15 seconds to approve; otherwise I cancel.';
+      response = 'You can ask me to open a screen, create a note or task, edit a saved record, draft an email, organise a visitor check-in, or read information. I stop listening after each request.';
     } else if (command.contains('read this screen') ||
         command.contains('summarise this screen') ||
         command.contains('summarize this screen') ||
@@ -2677,13 +2644,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _processing = false;
     _refreshAssistantPopup();
     if (resumeVoice && _voiceSession && mounted) {
-      await _promptSessionChoice(speakResponse: speakResponse);
+      await _stopVoiceAfterTask();
     }
   }
 
-  bool _requiresAssistantConfirmation(String action, String command) =>
-      (action != 'navigate' && action != 'answer' && action != 'clarify') ||
-      _isReadRequest(command);
+  bool _requiresAssistantConfirmation(String action, String command) => false;
 
   bool _isReadRequest(String command) =>
       RegExp(
@@ -2691,46 +2656,24 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       ).hasMatch(command) ||
       command == 'read screen';
 
-  bool _requiresLocalConfirmation(String command) {
-    final mutating = _hasCreateIntent(command) ||
-        RegExp(
-          r'\b(create|add|save|draft|schedule|set|check in|check out|complete|finish|edit|update|change|delete|remove|cancel)\b',
-        ).hasMatch(command);
-    final reading = RegExp(
-      r'\b(read|summari[sz]e|tell me|list|find|search|look up|how many|what is in|what time|who is|where is|when is|show me)\b',
-    ).hasMatch(command) ||
-        command == 'read screen';
-    return mutating || reading;
-  }
+  bool _requiresLocalConfirmation(String command) => false;
 
-  Future<void> _promptSessionChoice({bool speakResponse = true}) async {
+  Future<void> _stopVoiceAfterTask() async {
     if (!_voiceSession || !mounted) return;
-    const prompt =
-        'Press any key within 15 seconds to keep listening. If you do nothing, I will stop listening.';
-    await _waitForSpeechToFinish();
-    _awaitingSessionChoice = true;
+    _voiceSession = false;
     _processing = false;
     _listening = false;
-    _transcript = '$_transcript\n$prompt'.trim();
-    _refreshAssistantPopup();
-    if (speakResponse) await _speak(prompt);
-    await _waitForSpeechToFinish();
-    if (!_voiceSession || !mounted) return;
-    final keepListening = await _confirmByKey(prompt, speakPrompt: false);
     _awaitingSessionChoice = false;
-    if (keepListening) {
-      _transcript = 'Okay. I will keep listening.';
-      if (speakResponse) await _speak('Okay. I will keep listening.');
-      await _waitForSpeechToFinish();
-      if (_voiceSession && mounted) await _listenOnce();
-    } else {
-      _voiceSession = false;
-      _processing = false;
-      _listening = false;
-      _transcript = 'No key was pressed. Voice listening stopped.';
-      _refreshAssistantPopup();
-      if (speakResponse) await _speak('No key was pressed. I have stopped listening.');
-    }
+    _listenRestartTimer?.cancel();
+    _audioCheckTimer?.cancel();
+    try {
+      await _audioRecorder.stop();
+    } catch (_) {}
+    await _audioSubscription?.cancel();
+    _audioSubscription = null;
+    await _speech.stop();
+    _transcript = 'Voice session stopped.';
+    _refreshAssistantPopup();
   }
 
   bool _isNavigationRequest(String command) =>
@@ -3479,9 +3422,13 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     ),
   );
 
-  Future<void> _handleAssistantButton() async {
+  Future<void> _handleAssistantButton({bool showPopup = true}) async {
     if (_voiceSession) {
-      _closeAssistantPopup();
+      if (showPopup) {
+        _closeAssistantPopup();
+      } else {
+        await _toggleVoice();
+      }
       return;
     }
     _wakeLaunchInProgress = true;
@@ -3490,7 +3437,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _wakeWordListening = false;
       await _speech.stop();
     }
-    _openAssistantPopup();
+    if (showPopup) _openAssistantPopup();
     try {
       await _toggleVoice(greet: true);
     } finally {
@@ -3514,8 +3461,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   void _openAssistantPopup() {
+    if (_assistantPopupOpen) return;
     final navigatorContext = _navigatorKey.currentContext;
     if (navigatorContext == null) return;
+    _assistantPopupOpen = true;
     showGeneralDialog<void>(
       context: navigatorContext,
       barrierDismissible: false,
@@ -3548,7 +3497,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           ),
         );
       },
-    ).whenComplete(() => _popupRebuild = null);
+    ).whenComplete(() {
+      _popupRebuild = null;
+      _assistantPopupOpen = false;
+    });
   }
 }
 
@@ -6064,7 +6016,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Windows: the small Liyabona microphone button stays above other apps. Click it, or press Control + Alt + Space, to start a voice session. The microphone stays off until activated unless you turn on the optional Assist wake word. To read an email or document, switch to it and press Control + Alt + R. Reading is local and read-only; it does not send screen text to Gemini or change the other app. Press any key within 15 seconds to approve a read or data change; wait to cancel.',
+              'Windows: click the small Liyabona microphone button or press Control + Alt + Space to start a voice session without restoring the full app window. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. If Gemini is offline or audio transcription takes more than eight seconds, Windows switches to built-in speech recognition. If Liyabona cannot make out the words, it says “Repeat again.” To read an email or document, switch to it and press Control + Alt + R. Reading is local and read-only; it does not send screen text to Gemini or change the other app.',
               style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],

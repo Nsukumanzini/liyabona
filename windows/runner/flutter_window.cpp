@@ -196,8 +196,6 @@ void FlutterWindow::SetFloatingState(const std::string& state) {
 }
 
 void FlutterWindow::ActivateAssistant() {
-  ShowWindow(GetHandle(), SW_RESTORE);
-  SetForegroundWindow(GetHandle());
   if (accessibility_channel_) {
     accessibility_channel_->InvokeMethod("activateAssistant", nullptr);
   }
