@@ -53,6 +53,25 @@ void AppendUnique(std::wstring value, std::set<std::wstring>* seen,
   output->append(value.substr(0, remaining));
 }
 
+std::wstring ControlTypeName(CONTROLTYPEID control_type) {
+  switch (control_type) {
+    case UIA_ButtonControlTypeId: return L"Button";
+    case UIA_CheckBoxControlTypeId: return L"Checkbox";
+    case UIA_ComboBoxControlTypeId: return L"Combo box";
+    case UIA_EditControlTypeId: return L"Text field";
+    case UIA_HyperlinkControlTypeId: return L"Link";
+    case UIA_ListControlTypeId: return L"List";
+    case UIA_ListItemControlTypeId: return L"List item";
+    case UIA_MenuItemControlTypeId: return L"Menu item";
+    case UIA_RadioButtonControlTypeId: return L"Radio button";
+    case UIA_TabControlTypeId: return L"Tab list";
+    case UIA_TabItemControlTypeId: return L"Tab";
+    case UIA_TextControlTypeId: return L"Text";
+    case UIA_TreeItemControlTypeId: return L"Tree item";
+    default: return L"Control";
+  }
+}
+
 std::wstring ReadAccessibleText(HWND target, std::wstring* title) {
   const int title_size = GetWindowTextLengthW(target);
   std::wstring window_title(title_size > 0 ? title_size + 1 : 1, L'\0');
@@ -114,13 +133,31 @@ std::wstring ReadAccessibleText(HWND target, std::wstring* title) {
       ComPtr<IUIAutomationElement> element;
       if (FAILED(elements->GetElement(index, &element)) || !element) continue;
 
+      int control_type = UIA_CustomControlTypeId;
+      element->get_CurrentControlType(&control_type);
+      const std::wstring role = ControlTypeName(control_type);
       BSTR name = nullptr;
+      std::wstring label;
       if (SUCCEEDED(element->get_CurrentName(&name)) && name != nullptr) {
-        AppendUnique(BstrToString(name), &seen, &output, kMaxCharacters);
+        label = BstrToString(name);
+      }
+
+      VARIANT password_property;
+      VariantInit(&password_property);
+      const bool is_password =
+          SUCCEEDED(element->GetCurrentPropertyValue(
+              UIA_IsPasswordPropertyId, &password_property)) &&
+          password_property.vt == VT_BOOL &&
+          password_property.boolVal == VARIANT_TRUE;
+      VariantClear(&password_property);
+
+      std::wstring accessible_line;
+      if (!label.empty()) {
+        accessible_line = role + L": " + label;
       }
 
       IUnknown* raw_value_pattern = nullptr;
-      if (SUCCEEDED(element->GetCurrentPattern(UIA_ValuePatternId,
+      if (!is_password && SUCCEEDED(element->GetCurrentPattern(UIA_ValuePatternId,
                                                 &raw_value_pattern)) &&
           raw_value_pattern != nullptr) {
         ComPtr<IUIAutomationValuePattern> value_pattern;
@@ -128,11 +165,17 @@ std::wstring ReadAccessibleText(HWND target, std::wstring* title) {
                 IID_PPV_ARGS(&value_pattern))) && value_pattern) {
           BSTR value = nullptr;
           if (SUCCEEDED(value_pattern->get_CurrentValue(&value)) && value != nullptr) {
-            AppendUnique(BstrToString(value), &seen, &output, kMaxCharacters);
+            const std::wstring value_text = BstrToString(value);
+            if (!value_text.empty()) {
+              if (!accessible_line.empty()) accessible_line.append(L", ");
+              accessible_line.append(L"value: ");
+              accessible_line.append(value_text);
+            }
           }
         }
         raw_value_pattern->Release();
       }
+      AppendUnique(accessible_line, &seen, &output, kMaxCharacters);
     }
   }
 
