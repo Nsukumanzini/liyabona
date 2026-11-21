@@ -12,7 +12,7 @@ To enable transcription and AI replies, add the Gemini API key in Google AI Stud
 
 Email drafts can be prepared and reviewed in Liyabona. Sending or receiving college email requires Student Support's mailbox provider and secure access to be approved and configured by college IT.
 
-On Windows, switch to an email, Office document or another app, activate the floating Liyabona assistant, and say **“read”**, **“read the screen”** or **“ready”**. You can also press **Ctrl+Alt+R**. Liyabona reads aloud text that the active app exposes through Windows UI Automation. This feature is read-only; the extracted text stays on the computer and is not added to chat or sent to Gemini. It can only read content exposed by the other app's accessibility support, and it does not sign in to mailboxes or modify external apps.
+On Windows, switch to an email, Office document or another app, activate the floating Liyabona assistant, and say **“read”**, **“read the screen”** or **“ready”**. You can also press **Ctrl+Alt+R**. Liyabona reads aloud text that the active app exposes through Windows UI Automation, in short sections. Say **“continue reading”** for the next section or **“repeat”** to hear the previous section again. Screen reading is read-only; the extracted text stays on the computer and is not added to chat or sent to Gemini. It can only read content exposed by the other app's accessibility support, and it does not sign in to mailboxes or modify external apps.
 
 The Windows app also shows a small floating microphone button above other apps. Click it, or press **Ctrl+Alt+Space**, to start a voice session without restoring the full Liyabona window. The microphone is off until activated. The voice session stops after each request; click the floating button again for another request. On Windows, the optional Assist wake word can be enabled in the AI assistant settings; while enabled, Windows speech recognition listens locally for “Assist” as long as Liyabona is open. Reading text from another app remains a separate, local, read-only shortcut.
 
@@ -61,6 +61,8 @@ Examples:
 - “Complete task prepare the visitor sign-in sheets.”
 - “Draft an email to Amina about financial aid.”
 - “Read this screen.”
+- “Continue reading.”
+- “Repeat.”
 - “Edit the task called prepare visitor sheets and change the detail to print 20 copies.”
 - “Delete the note called registration forms.”
 - The app speaks “Hello, I hope you are doing well” when it opens.

@@ -73,6 +73,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   bool _wakeLaunchInProgress = false;
   bool _assistantPopupOpen = false;
   String _lastSpeechText = '';
+  String _windowsScreenText = '';
+  String _windowsScreenTitle = '';
+  String _lastWindowsScreenChunk = '';
+  int _windowsScreenOffset = 0;
   int _speechGeneration = 0;
   StateSetter? _popupRebuild;
   String _transcript = '';
@@ -316,45 +320,108 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       await _speak(message);
       return null;
     }
-    // Keep this read local: external email and document content is spoken by
-    // Windows TTS and is never added to chat history or sent to Gemini.
-    final content = text.length > 8000 ? text.substring(0, 8000) : text;
-    final heading = title.isEmpty ? 'the active app' : title;
-    _transcript = 'Reading accessible text from $heading.';
-    _refreshAssistantPopup();
-    _stopSpeaking();
-    await _speak('Reading $heading. $content');
+    _cacheWindowsScreenText(title, text);
+    await _speakWindowsScreenChunk();
     return null;
   }
 
   bool _isWindowsScreenReadCommand(String command) =>
       RegExp(
-        r'^(?:(?:please|can you|could you)\s+)?(?:read(?:\s+(?:the|this|my|current|active)\s+screen|\s+screen|\s+this\s+window)?|ready)[.!? ]*$',
+        r'^(?:(?:please|can you|could you)\s+)?(?:read(?:\s+(?:(?:the|this|my|current|active)\s+)?(?:screen|window|app|email|message|document|page))?|ready)[.!? ]*$',
       ).hasMatch(command.trim().toLowerCase());
 
-  Future<void> _readActiveWindowsScreen() async {
+  bool _isContinueScreenReadCommand(String command) =>
+      RegExp(
+        r'^(continue(?: reading)?|read more|read the next (?:part|section)|next (?:part|section))[.!? ]*$',
+      ).hasMatch(command.trim().toLowerCase());
+
+  bool _isRepeatScreenReadCommand(String command) =>
+      RegExp(
+        r'^(repeat(?: that| reading| the last part)?|read that again|repeat last part)[.!? ]*$',
+      ).hasMatch(command.trim().toLowerCase());
+
+  void _cacheWindowsScreenText(String title, String text) {
+    _windowsScreenTitle = title.trim().isEmpty ? 'the active app' : title.trim();
+    _windowsScreenText = text.trim();
+    _windowsScreenOffset = 0;
+    _lastWindowsScreenChunk = '';
+  }
+
+  String _takeNextWindowsScreenChunk() {
+    const chunkLimit = 1000;
+    while (_windowsScreenOffset < _windowsScreenText.length &&
+        _windowsScreenText[_windowsScreenOffset].trim().isEmpty) {
+      _windowsScreenOffset++;
+    }
+    if (_windowsScreenOffset >= _windowsScreenText.length) return '';
+    final remaining = _windowsScreenText.substring(_windowsScreenOffset);
+    if (remaining.length <= chunkLimit) {
+      _windowsScreenOffset = _windowsScreenText.length;
+      return remaining.trim();
+    }
+
+    final candidate = remaining.substring(0, chunkLimit);
+    var boundary = candidate.lastIndexOf(RegExp(r'[.!?]\s'));
+    if (boundary < chunkLimit * .55) boundary = candidate.lastIndexOf(' ');
+    if (boundary <= 0) boundary = chunkLimit;
+    final chunk = remaining.substring(0, boundary + 1).trim();
+    _windowsScreenOffset += boundary + 1;
+    return chunk;
+  }
+
+  Future<void> _speakWindowsScreenChunk({bool repeatLast = false}) async {
+    final chunk = repeatLast
+        ? _lastWindowsScreenChunk
+        : _takeNextWindowsScreenChunk();
+    if (chunk.isEmpty) {
+      const message = 'There is no more screen text to read.';
+      _transcript = message;
+      _refreshAssistantPopup();
+      await _speak(message);
+      return;
+    }
+    if (!repeatLast) _lastWindowsScreenChunk = chunk;
+    final heading = _windowsScreenTitle.isEmpty
+        ? 'the active app'
+        : _windowsScreenTitle;
+    final hasMore = _windowsScreenOffset < _windowsScreenText.length;
+    final prompt = hasMore
+        ? ' Activate the assistant again and say continue reading for the next part, or repeat to hear this part again.'
+        : ' This is the end of the readable text.';
+    _transcript = repeatLast
+        ? 'Repeating the last section from $heading.'
+        : 'Reading a section from $heading.';
+    _refreshAssistantPopup();
+    _stopSpeaking();
+    await _speak('Reading $heading. $chunk.$prompt');
+  }
+
+  Future<void> _readActiveWindowsScreen({
+    bool continueReading = false,
+    bool repeatLast = false,
+  }) async {
     await _speech.stop();
     _listening = false;
     _processing = true;
     _refreshAssistantPopup();
     try {
-      final payload = await _windowsAccessibilityChannel
-          .invokeMapMethod<String, String>('readActiveApp');
-      final title = payload?['title']?.trim() ?? '';
-      final text = payload?['text']?.trim() ?? '';
-      if (text.isEmpty) {
+      if (!continueReading && !repeatLast) {
+        final payload = await _windowsAccessibilityChannel
+            .invokeMapMethod<String, String>('readActiveApp');
+        _cacheWindowsScreenText(
+          payload?['title']?.trim() ?? '',
+          payload?['text']?.trim() ?? '',
+        );
+      }
+      if (_windowsScreenText.isEmpty) {
         const message = 'I could not read text from that app.';
         _transcript = message;
         if (mounted) setState(() => _listening = false);
         await _speak(message);
       } else {
-        // External app text stays on this PC: it is read aloud locally and is
-        // never copied into the chat or sent to the AI service.
-        final content = text.length > 8000 ? text.substring(0, 8000) : text;
-        final heading = title.isEmpty ? 'the active app' : title;
-        _transcript = 'Reading accessible text from $heading.';
-        if (mounted) setState(() => _listening = false);
-        await _speak('Reading $heading. $content');
+        // External app text stays on this PC and is never added to chat or
+        // sent to the AI service. The text cache is cleared on each new read.
+        await _speakWindowsScreenChunk(repeatLast: repeatLast);
       }
     } on PlatformException {
       const message = 'I could not read text from that app.';
@@ -2051,6 +2118,18 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       await _readActiveWindowsScreen();
       return;
     }
+    if (_isWindowsDesktop && _isContinueScreenReadCommand(command)) {
+      _heardPhrase = phrase;
+      _interpretation = 'Continuing to read the active app';
+      await _readActiveWindowsScreen(continueReading: true);
+      return;
+    }
+    if (_isWindowsDesktop && _isRepeatScreenReadCommand(command)) {
+      _heardPhrase = phrase;
+      _interpretation = 'Repeating the last screen section';
+      await _readActiveWindowsScreen(repeatLast: true);
+      return;
+    }
     var response = 'Repeat again.';
     _heardPhrase = phrase;
     _interpretation = 'Checking your request with Liyabona AI';
@@ -2282,7 +2361,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       response = 'Voice session ended.';
     } else if (command.contains('help') ||
         command.contains('what can you do')) {
-      response = 'You can ask me to open a screen, create a note or task, edit a saved record, draft an email, organise a visitor check-in, or say read the screen to hear text from the active app. I stop listening after each request.';
+      response = 'You can ask me to open a screen, create a note or task, edit a saved record, draft an email, organise a visitor check-in, or say read to hear text from the active app. Say continue reading for the next section or repeat to hear the last section again. I stop listening after each request.';
     } else if (command.contains('read this screen') ||
         command.contains('summarise this screen') ||
         command.contains('summarize this screen') ||
@@ -6073,7 +6152,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Windows: click the small Liyabona microphone button or press Control + Alt + Space to start a voice session without restoring the full app window. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. If Gemini is offline or audio transcription takes more than eight seconds, Windows switches to built-in speech recognition. If Liyabona cannot make out the words, it says “Repeat again.” To read an email or document, switch to it and press Control + Alt + R. Reading is local and read-only; it does not send screen text to Gemini or change the other app.',
+              'Windows: click the small Liyabona microphone button or press Control + Alt + Space to start a voice session without restoring the full app window. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. If Gemini is offline or audio transcription takes more than eight seconds, Windows switches to built-in speech recognition. If Liyabona cannot make out the words, it says “Repeat again.” To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to Gemini or change the other app.',
               style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],

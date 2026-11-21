@@ -99,7 +99,7 @@ std::wstring ReadAccessibleText(HWND target, std::wstring* title) {
     return L"";
   }
 
-  constexpr size_t kMaxCharacters = 8000;
+  constexpr size_t kMaxCharacters = 32000;
   std::wstring output;
   std::set<std::wstring> seen;
 
@@ -113,7 +113,7 @@ std::wstring ReadAccessibleText(HWND target, std::wstring* title) {
       ComPtr<IUIAutomationTextRange> range;
       if (SUCCEEDED(text_pattern->get_DocumentRange(&range)) && range) {
         BSTR text = nullptr;
-        if (SUCCEEDED(range->GetText(6000, &text))) {
+        if (SUCCEEDED(range->GetText(24000, &text))) {
           AppendUnique(BstrToString(text), &seen, &output, kMaxCharacters);
         }
       }
