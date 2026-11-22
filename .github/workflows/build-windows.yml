@@ -37,6 +37,20 @@ jobs:
       - name: Build release app
         run: flutter build windows --release
 
+      - name: Show CMake install error details
+        if: failure()
+        shell: pwsh
+        run: |
+          $installScript = "build/windows/x64/cmake_install.cmake"
+          if (Test-Path $installScript) {
+            Push-Location "build/windows/x64"
+            try {
+              cmake -DBUILD_TYPE=Release -P cmake_install.cmake
+            } finally {
+              Pop-Location
+            }
+          }
+
       - name: Verify speech recognizer is linked into the app
         shell: pwsh
         run: |
