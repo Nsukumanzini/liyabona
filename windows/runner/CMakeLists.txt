@@ -25,11 +25,7 @@ FetchContent_Declare(whisper_cpp
   GIT_SUBMODULES ggml
   GIT_SUBMODULES_RECURSE TRUE
 )
-# Whisper is statically linked into the runner, so its own install rules are
-# unnecessary and can interfere with Flutter's app bundle install step.
-set(CMAKE_SKIP_INSTALL_RULES ON)
 FetchContent_MakeAvailable(whisper_cpp)
-unset(CMAKE_SKIP_INSTALL_RULES)
 # whisper.cpp sets a global runtime output directory for its own CLI tools. Put
 # Flutter's executable back in its standard runner/<Configuration> directory.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${LIYABONA_RUNTIME_OUTPUT_DIRECTORY}")
