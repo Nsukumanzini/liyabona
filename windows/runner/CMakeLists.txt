@@ -6,6 +6,8 @@ project(runner LANGUAGES CXX)
 include(FetchContent)
 set(LIYABONA_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 set(LIYABONA_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
+set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/whisper-install"
+  CACHE PATH "Temporary install prefix for Whisper dependency configuration" FORCE)
 set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/whisper-install")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static dependencies" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -29,6 +31,8 @@ FetchContent_Declare(whisper_cpp
 )
 FetchContent_MakeAvailable(whisper_cpp)
 set(CMAKE_INSTALL_PREFIX "${LIYABONA_INSTALL_PREFIX}")
+set(CMAKE_INSTALL_PREFIX "${LIYABONA_INSTALL_PREFIX}" CACHE PATH
+  "Restore the Flutter app bundle install prefix" FORCE)
 unset(LIYABONA_INSTALL_PREFIX)
 # whisper.cpp sets a global runtime output directory for its own CLI tools. Put
 # Flutter's executable back in its standard runner/<Configuration> directory.
