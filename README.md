@@ -16,6 +16,8 @@ On Windows, switch to an email, Office document or another app, activate the flo
 
 The Windows app also shows a small floating microphone button above other apps. Click it, or press **Ctrl+Alt+Space**, to start a voice session without restoring the full Liyabona window. The microphone is off until activated. The voice session stops after each request; click the floating button again for another request. On Windows, the optional Assist wake word can be enabled in the AI assistant settings; while enabled, Windows speech recognition listens locally for “Assist” as long as Liyabona is open. Reading text from another app remains a separate, local, read-only shortcut.
 
+The Windows assistant can open Outlook, Word, Excel, PowerPoint, Edge, Notepad, Calculator and File Explorer by voice. It does not click, type, or change information in those external apps.
+
 ## Run locally
 
 ```sh
@@ -52,6 +54,8 @@ Online voice recognition sends a short recording to Gemini, which transcribes En
 
 Examples:
 
+- “Open Outlook.”
+- “Open Word.”
 - “Open calendar.”
 - “Schedule an appointment with Lerato tomorrow at 2 PM about registration.”
 - “Create a note that the registration forms are ready.”

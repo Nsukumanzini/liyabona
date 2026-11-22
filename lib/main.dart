@@ -340,6 +340,67 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         r'^(repeat(?: that| reading| the last part)?|read that again|repeat last part)[.!? ]*$',
       ).hasMatch(command.trim().toLowerCase());
 
+  String? _approvedWindowsAppId(String command) {
+    final app = command
+        .toLowerCase()
+        .trim()
+        .replaceFirst(RegExp(r'^(please\s+)?(open|launch|start)\s+(the\s+)?'), '')
+        .replaceAll(RegExp(r'[.!?]+$'), '')
+        .trim();
+    return switch (app) {
+      'outlook' || 'microsoft outlook' => 'outlook',
+      'word' || 'microsoft word' => 'word',
+      'excel' || 'microsoft excel' => 'excel',
+      'powerpoint' || 'power point' || 'microsoft powerpoint' => 'powerpoint',
+      'edge' || 'microsoft edge' || 'browser' || 'web browser' => 'edge',
+      'notepad' => 'notepad',
+      'calculator' => 'calculator',
+      'file explorer' || 'explorer' => 'file_explorer',
+      _ => null,
+    };
+  }
+
+  String _windowsAppName(String appId) => switch (appId) {
+    'outlook' => 'Outlook',
+    'word' => 'Word',
+    'excel' => 'Excel',
+    'powerpoint' => 'PowerPoint',
+    'edge' => 'Microsoft Edge',
+    'notepad' => 'Notepad',
+    'calculator' => 'Calculator',
+    'file_explorer' => 'File Explorer',
+    _ => 'that app',
+  };
+
+  Future<void> _openApprovedWindowsApp(String appId) async {
+    await _speech.stop();
+    _listening = false;
+    _processing = true;
+    _interpretation = 'Opening ${_windowsAppName(appId)}';
+    _refreshAssistantPopup();
+    var opened = false;
+    try {
+      opened = await _windowsAccessibilityChannel.invokeMethod<bool>(
+            'openApprovedApp',
+            appId,
+          ) ??
+          false;
+    } catch (_) {
+      opened = false;
+    }
+    final name = _windowsAppName(appId);
+    final response = opened
+        ? 'Opening $name. Activate Liyabona again when you want me to read its screen.'
+        : 'I could not open $name. It may not be installed on this computer.';
+    _transcript = response;
+    if (mounted) setState(() => _listening = false);
+    _refreshAssistantPopup();
+    await _speak(response);
+    _processing = false;
+    _refreshAssistantPopup();
+    if (_voiceSession && mounted) await _stopVoiceAfterTask();
+  }
+
   void _cacheWindowsScreenText(String title, String text) {
     _windowsScreenTitle = title.trim().isEmpty ? 'the active app' : title.trim();
     _windowsScreenText = text.trim();
@@ -2130,6 +2191,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       await _readActiveWindowsScreen(repeatLast: true);
       return;
     }
+    if (_isWindowsDesktop) {
+      final appId = _approvedWindowsAppId(command);
+      if (appId != null) {
+        _heardPhrase = phrase;
+        await _openApprovedWindowsApp(appId);
+        return;
+      }
+    }
     var response = 'Repeat again.';
     _heardPhrase = phrase;
     _interpretation = 'Checking your request with Liyabona AI';
@@ -2361,7 +2430,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       response = 'Voice session ended.';
     } else if (command.contains('help') ||
         command.contains('what can you do')) {
-      response = 'You can ask me to open a screen, create a note or task, edit a saved record, draft an email, organise a visitor check-in, or say read to hear text from the active app. Say continue reading for the next section or repeat to hear the last section again. I stop listening after each request.';
+      response = 'You can ask me to open a Liyabona screen or open Outlook, Word, Excel, PowerPoint, Edge, Notepad, Calculator or File Explorer. I can read text from the active app, draft emails and notes, and help manage reception records. Say continue reading for the next section or repeat to hear the last section again. I stop listening after each request.';
     } else if (command.contains('read this screen') ||
         command.contains('summarise this screen') ||
         command.contains('summarize this screen') ||

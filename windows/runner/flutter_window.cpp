@@ -6,6 +6,7 @@
 #include <string>
 #include <variant>
 
+#include <shellapi.h>
 #include <UIAutomation.h>
 #include <wrl/client.h>
 
@@ -363,6 +364,29 @@ bool FlutterWindow::OnCreate() {
         if (call.method_name() == "readActiveApp") {
           result->Success(
               flutter::EncodableValue(ReadForegroundAppText(GetHandle())));
+        } else if (call.method_name() == "openApprovedApp") {
+          const std::string* app_id =
+              call.arguments() == nullptr
+                  ? nullptr
+                  : std::get_if<std::string>(call.arguments());
+          const wchar_t* executable = nullptr;
+          if (app_id != nullptr) {
+            if (*app_id == "outlook") executable = L"outlook.exe";
+            if (*app_id == "word") executable = L"winword.exe";
+            if (*app_id == "excel") executable = L"excel.exe";
+            if (*app_id == "powerpoint") executable = L"powerpnt.exe";
+            if (*app_id == "edge") executable = L"msedge.exe";
+            if (*app_id == "notepad") executable = L"notepad.exe";
+            if (*app_id == "calculator") executable = L"calc.exe";
+            if (*app_id == "file_explorer") executable = L"explorer.exe";
+          }
+          const HINSTANCE launch_result =
+              executable == nullptr
+                  ? nullptr
+                  : ShellExecuteW(GetHandle(), L"open", executable, nullptr,
+                                  nullptr, SW_SHOWNORMAL);
+          result->Success(flutter::EncodableValue(
+              reinterpret_cast<INT_PTR>(launch_result) > 32));
         } else if (call.method_name() == "setFloatingState") {
           const std::string* state =
               call.arguments() == nullptr
