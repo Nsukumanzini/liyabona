@@ -1,12 +1,13 @@
 $ErrorActionPreference = 'Stop'
 
 $ModelName = 'ggml-small.en-q5_1.bin'
-$ModelRevision = '5359861c739e955e79d9a303bcbc70fb988958b1'
+$ModelRevision = 'e7c63091148293a457a91f9b127a86250683f6b9'
 $ModelSha256 = 'bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30'
 $ModelSize = 190098681L
 $ModelDirectory = Join-Path $PSScriptRoot '..\windows\models'
 $ModelPath = Join-Path $ModelDirectory $ModelName
-$ModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/$ModelRevision/$ModelName?download=true"
+$ModelSourceName = 'ggml-model-whisper-small.en-q5_1.bin'
+$ModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/$ModelRevision/$ModelSourceName?download=true"
 
 New-Item -ItemType Directory -Force -Path $ModelDirectory | Out-Null
 if (Test-Path $ModelPath) {
