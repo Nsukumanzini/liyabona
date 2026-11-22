@@ -5,10 +5,7 @@ project(runner LANGUAGES CXX)
 # offline transcription independent of an unsigned sidecar executable or DLL.
 include(FetchContent)
 set(LIYABONA_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-set(LIYABONA_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
-set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/whisper-install"
-  CACHE PATH "Temporary install prefix for Whisper dependency configuration" FORCE)
-set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/whisper-install")
+set(CMAKE_SKIP_INSTALL_RULES ON)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static dependencies" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -30,10 +27,13 @@ FetchContent_Declare(whisper_cpp
   GIT_SUBMODULES_RECURSE TRUE
 )
 FetchContent_MakeAvailable(whisper_cpp)
-set(CMAKE_INSTALL_PREFIX "${LIYABONA_INSTALL_PREFIX}")
-set(CMAKE_INSTALL_PREFIX "${LIYABONA_INSTALL_PREFIX}" CACHE PATH
-  "Restore the Flutter app bundle install prefix" FORCE)
-unset(LIYABONA_INSTALL_PREFIX)
+# Flutter's parent install script includes the dependency's script even though
+# Whisper is linked statically. Supply a no-op script so CMake can finish the
+# app bundle install without trying to install Whisper into Flutter's dynamic
+# generator-expression path.
+file(WRITE "${whisper_cpp_BINARY_DIR}/cmake_install.cmake"
+  "# Whisper is statically linked into the Liyabona executable.\n")
+unset(CMAKE_SKIP_INSTALL_RULES)
 # whisper.cpp sets a global runtime output directory for its own CLI tools. Put
 # Flutter's executable back in its standard runner/<Configuration> directory.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${LIYABONA_RUNTIME_OUTPUT_DIRECTORY}")
