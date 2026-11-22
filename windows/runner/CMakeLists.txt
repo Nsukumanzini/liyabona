@@ -4,6 +4,7 @@ project(runner LANGUAGES CXX)
 # Whisper.cpp is compiled into liyabona.exe as a static CPU library. This keeps
 # offline transcription independent of an unsigned sidecar executable or DLL.
 include(FetchContent)
+set(LIYABONA_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static dependencies" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -29,6 +30,10 @@ FetchContent_Declare(whisper_cpp
 set(CMAKE_SKIP_INSTALL_RULES ON)
 FetchContent_MakeAvailable(whisper_cpp)
 unset(CMAKE_SKIP_INSTALL_RULES)
+# whisper.cpp sets a global runtime output directory for its own CLI tools. Put
+# Flutter's executable back in its standard runner/<Configuration> directory.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${LIYABONA_RUNTIME_OUTPUT_DIRECTORY}")
+unset(LIYABONA_RUNTIME_OUTPUT_DIRECTORY)
 
 # Define the application target. To change its name, change BINARY_NAME in the
 # top-level CMakeLists.txt, not the value here, or `flutter run` will no longer
