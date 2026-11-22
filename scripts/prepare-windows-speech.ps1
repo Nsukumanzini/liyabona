@@ -7,7 +7,7 @@ $ModelSize = 190098681L
 $ModelDirectory = Join-Path $PSScriptRoot '..\windows\models'
 $ModelPath = Join-Path $ModelDirectory $ModelName
 $ModelSourceName = 'ggml-model-whisper-small.en-q5_1.bin'
-$ModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/$ModelRevision/$ModelSourceName?download=true"
+$ModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/$ModelRevision/$ModelSourceName"
 
 New-Item -ItemType Directory -Force -Path $ModelDirectory | Out-Null
 if (Test-Path $ModelPath) {
