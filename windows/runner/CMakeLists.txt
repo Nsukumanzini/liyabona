@@ -24,7 +24,11 @@ FetchContent_Declare(whisper_cpp
   GIT_SUBMODULES ggml
   GIT_SUBMODULES_RECURSE TRUE
 )
+# Whisper is statically linked into the runner, so its own install rules are
+# unnecessary and can interfere with Flutter's app bundle install step.
+set(CMAKE_SKIP_INSTALL_RULES ON)
 FetchContent_MakeAvailable(whisper_cpp)
+unset(CMAKE_SKIP_INSTALL_RULES)
 
 # Define the application target. To change its name, change BINARY_NAME in the
 # top-level CMakeLists.txt, not the value here, or `flutter run` will no longer
