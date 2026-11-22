@@ -37,10 +37,13 @@ class FlutterWindow : public Win32Window {
   bool assistant_hotkey_registered_ = false;
   HWND floating_button_ = nullptr;
   std::string floating_state_ = "idle";
+  std::string floating_transcript_;
+  unsigned int floating_animation_phase_ = 0;
 
   bool CreateFloatingButton();
   void PositionFloatingButton();
-  void SetFloatingState(const std::string& state);
+  void SetFloatingState(const std::string& state,
+                        const std::string& transcript);
   void ActivateAssistant();
   static LRESULT CALLBACK FloatingButtonWindowProc(
       HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;

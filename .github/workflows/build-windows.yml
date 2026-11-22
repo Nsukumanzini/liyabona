@@ -21,6 +21,16 @@ jobs:
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
+      - name: Cache offline speech model
+        uses: actions/cache@v4
+        with:
+          path: windows/models/ggml-small.en-q5_1.bin
+          key: liyabona-whisper-small-en-q5_1-bfdff4894dcb76bb
+
+      - name: Prepare offline speech model
+        shell: pwsh
+        run: ./scripts/prepare-windows-speech.ps1
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -40,8 +50,14 @@ jobs:
           if (Test-Path "$release/record_windows_plugin.dll") {
             throw "The separate audio recorder DLL was built. Check the static Windows recorder override."
           }
+          if (Test-Path "$release/whisper.dll") {
+            throw "Whisper was built as a separate DLL instead of being linked into the app."
+          }
           if (-not (Test-Path "$release/liyabona.exe")) {
             throw "The Windows executable was not produced."
+          }
+          if (-not (Test-Path "$release/speech_models/ggml-small.en-q5_1.bin")) {
+            throw "The offline speech model is missing from the Windows build."
           }
 
       - name: Package Windows build

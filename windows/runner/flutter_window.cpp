@@ -2,9 +2,12 @@
 
 #include <optional>
 #include <cwctype>
+#include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <variant>
+#include <vector>
 
 #include <shellapi.h>
 #include <UIAutomation.h>
@@ -13,15 +16,25 @@
 #include "flutter/generated_plugin_registrant.h"
 #include <speech_to_text_windows/speech_to_text_windows.h>
 #include <flutter_tts/flutter_tts_plugin.h>
+#include "whisper_transcriber.h"
 
 namespace {
 constexpr int kReadActiveAppHotkey = 0x4C;
 constexpr UINT kReadActiveAppKey = 'R';
 constexpr int kAssistantHotkey = 0x4D;
+constexpr UINT kOfflineTranscriptionReady = WM_APP + 41;
+constexpr UINT_PTR kFloatingAnimationTimer = 920;
 constexpr wchar_t kFloatingButtonClass[] = L"LiyabonaFloatingVoiceButton";
 constexpr int kFloatingButtonSize = 76;
+constexpr int kFloatingPanelWidth = 360;
+constexpr int kFloatingPanelHeight = 132;
 constexpr COLORREF kTransparentColor = RGB(255, 0, 255);
 using Microsoft::WRL::ComPtr;
+
+struct OfflineTranscriptionResult {
+  std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
+  OfflineTranscription transcription;
+};
 
 std::wstring BstrToString(BSTR value) {
   if (value == nullptr) return L"";
@@ -40,6 +53,18 @@ std::string ToUtf8(const std::wstring& value) {
   WideCharToMultiByte(CP_UTF8, 0, value.data(),
                       static_cast<int>(value.size()), output.data(), size,
                       nullptr, nullptr);
+  return output;
+}
+
+std::wstring ToWide(const std::string& value) {
+  if (value.empty()) return L"";
+  const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(),
+                                       static_cast<int>(value.size()), nullptr,
+                                       0);
+  if (size <= 0) return L"";
+  std::wstring output(size, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, value.data(),
+                      static_cast<int>(value.size()), output.data(), size);
   return output;
 }
 
@@ -235,21 +260,34 @@ void FlutterWindow::PositionFloatingButton() {
   monitor_info.cbSize = sizeof(monitor_info);
   HMONITOR monitor = MonitorFromWindow(GetHandle(), MONITOR_DEFAULTTONEAREST);
   if (monitor == nullptr || !GetMonitorInfoW(monitor, &monitor_info)) return;
-  const int x = monitor_info.rcWork.right - kFloatingButtonSize - 18;
-  const int y = monitor_info.rcWork.bottom - kFloatingButtonSize - 88;
-  SetWindowPos(floating_button_, HWND_TOPMOST, x, y, kFloatingButtonSize,
-               kFloatingButtonSize, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  const bool expanded = floating_state_ != "idle";
+  const int width = expanded ? kFloatingPanelWidth : kFloatingButtonSize;
+  const int height = expanded ? kFloatingPanelHeight : kFloatingButtonSize;
+  const int x = monitor_info.rcWork.right - width - 18;
+  const int y = monitor_info.rcWork.bottom - height - 22;
+  SetWindowPos(floating_button_, HWND_TOPMOST, x, y, width, height,
+               SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
-void FlutterWindow::SetFloatingState(const std::string& state) {
+void FlutterWindow::SetFloatingState(const std::string& state,
+                                     const std::string& transcript) {
+  const bool changed_state = floating_state_ != state;
   floating_state_ = state;
+  floating_transcript_ = transcript.substr(0, 280);
   if (floating_button_ != nullptr) {
-    const wchar_t* label = L"Liyabona voice button. Click to speak.";
-    if (state == "wake") label = L"Liyabona wake word is listening. Say Assist.";
-    else if (state == "listening") label = L"Liyabona is listening.";
-    else if (state == "processing") label = L"Liyabona is working.";
-    else if (state == "speaking") label = L"Liyabona is speaking.";
-    SetWindowTextW(floating_button_, label);
+    std::wstring label = L"Liyabona assistant. Click to start voice help.";
+    if (state == "wake") label = L"Liyabona is listening locally for Assist.";
+    else if (state == "listening") label = L"Liyabona is listening. Click to stop.";
+    else if (state == "processing") label = L"Liyabona is understanding your request.";
+    else if (state == "speaking") label = L"Liyabona is speaking. Click to stop.";
+    SetWindowTextW(floating_button_, label.c_str());
+    if (state == "idle") {
+      KillTimer(floating_button_, kFloatingAnimationTimer);
+      floating_animation_phase_ = 0;
+    } else if (changed_state || state != "idle") {
+      SetTimer(floating_button_, kFloatingAnimationTimer, 90, nullptr);
+    }
+    PositionFloatingButton();
     InvalidateRect(floating_button_, nullptr, FALSE);
   }
 }
@@ -283,10 +321,6 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
       HDC dc = BeginPaint(window, &paint);
       RECT bounds{};
       GetClientRect(window, &bounds);
-      HBRUSH transparent = CreateSolidBrush(kTransparentColor);
-      FillRect(dc, &bounds, transparent);
-      DeleteObject(transparent);
-
       COLORREF status_color = RGB(19, 121, 109);
       if (owner != nullptr && owner->floating_state_ == "listening") {
         status_color = RGB(176, 53, 41);
@@ -298,23 +332,70 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
         status_color = RGB(50, 107, 177);
       }
 
+      const bool expanded = owner != nullptr && owner->floating_state_ != "idle";
+      if (expanded) {
+        HBRUSH panel = CreateSolidBrush(RGB(23, 76, 66));
+        HPEN panel_border = CreatePen(PS_SOLID, 1, RGB(35, 116, 100));
+        HGDIOBJ old_panel_brush = SelectObject(dc, panel);
+        HGDIOBJ old_panel_pen = SelectObject(dc, panel_border);
+        RoundRect(dc, 1, 1, bounds.right - 1, bounds.bottom - 1, 26, 26);
+        SelectObject(dc, old_panel_brush);
+        SelectObject(dc, old_panel_pen);
+        DeleteObject(panel);
+        DeleteObject(panel_border);
+      } else {
+        HBRUSH transparent = CreateSolidBrush(kTransparentColor);
+        FillRect(dc, &bounds, transparent);
+        DeleteObject(transparent);
+      }
+
+      const int center_x = expanded ? 49 : kFloatingButtonSize / 2;
+      const int center_y = expanded ? bounds.bottom / 2 : kFloatingButtonSize / 2;
+      if (expanded && owner != nullptr) {
+        const int wave = 1 + static_cast<int>(
+            (owner->floating_animation_phase_ <= 12
+                 ? owner->floating_animation_phase_
+                 : 24 - owner->floating_animation_phase_) /
+            4);
+        HPEN halo = CreatePen(PS_SOLID, 2, status_color);
+        HGDIOBJ previous_halo = SelectObject(dc, halo);
+        SelectObject(dc, GetStockObject(NULL_BRUSH));
+        Ellipse(dc, center_x - 34 - wave, center_y - 34 - wave,
+                center_x + 34 + wave, center_y + 34 + wave);
+        SelectObject(dc, previous_halo);
+        DeleteObject(halo);
+      }
+
       HBRUSH fill = CreateSolidBrush(status_color);
       HPEN border = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
       HGDIOBJ old_brush = SelectObject(dc, fill);
       HGDIOBJ old_pen = SelectObject(dc, border);
-      Ellipse(dc, 7, 7, kFloatingButtonSize - 7, kFloatingButtonSize - 7);
+      Ellipse(dc, center_x - 30, center_y - 30, center_x + 30, center_y + 30);
 
-      HPEN icon_pen = CreatePen(PS_SOLID, 4, RGB(255, 255, 255));
+      HPEN icon_pen = CreatePen(PS_SOLID, 3, RGB(255, 255, 255));
       HGDIOBJ previous_pen = SelectObject(dc, icon_pen);
-      HBRUSH icon_brush = CreateSolidBrush(RGB(255, 255, 255));
+      HBRUSH icon_brush = CreateSolidBrush(expanded ? RGB(23, 76, 66)
+                                                    : RGB(255, 255, 255));
       HGDIOBJ previous_brush = SelectObject(dc, icon_brush);
-      RoundRect(dc, 31, 22, 45, 43, 7, 7);
-      SelectObject(dc, GetStockObject(NULL_BRUSH));
-      Arc(dc, 25, 27, 51, 52, 25, 39, 51, 39);
-      MoveToEx(dc, 38, 51, nullptr);
-      LineTo(dc, 38, 57);
-      MoveToEx(dc, 31, 58, nullptr);
-      LineTo(dc, 45, 58);
+      if (expanded) {
+        // A simple Liyabona face gives the always-on-top control a friendly
+        // identity; the ring animation communicates listening and speaking.
+        Ellipse(dc, center_x - 13, center_y - 10, center_x - 5, center_y - 2);
+        Ellipse(dc, center_x + 5, center_y - 10, center_x + 13, center_y - 2);
+        SelectObject(dc, GetStockObject(NULL_BRUSH));
+        Arc(dc, center_x - 15, center_y - 5, center_x + 15, center_y + 17,
+            center_x - 15, center_y + 5, center_x + 15, center_y + 5);
+      } else {
+        RoundRect(dc, center_x - 7, center_y - 16, center_x + 7,
+                  center_y + 5, 7, 7);
+        SelectObject(dc, GetStockObject(NULL_BRUSH));
+        Arc(dc, center_x - 13, center_y - 11, center_x + 13, center_y + 14,
+            center_x - 13, center_y + 1, center_x + 13, center_y + 1);
+        MoveToEx(dc, center_x, center_y + 14, nullptr);
+        LineTo(dc, center_x, center_y + 20);
+        MoveToEx(dc, center_x - 7, center_y + 21, nullptr);
+        LineTo(dc, center_x + 7, center_y + 21);
+      }
 
       SelectObject(dc, previous_brush);
       SelectObject(dc, previous_pen);
@@ -324,9 +405,49 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
       SelectObject(dc, old_pen);
       DeleteObject(fill);
       DeleteObject(border);
+
+      if (expanded && owner != nullptr) {
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(255, 255, 255));
+        HFONT title_font = CreateFontW(-17, 0, 0, 0, FW_BOLD, FALSE, FALSE,
+                                       FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                       CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                       DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+        HGDIOBJ old_font = SelectObject(dc, title_font);
+        RECT title_rect{96, 17, bounds.right - 18, 42};
+        DrawTextW(dc, L"Liyabona AI", -1, &title_rect,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        const wchar_t* status = L"Ready";
+        if (owner->floating_state_ == "wake") status = L"Listening for Assist";
+        else if (owner->floating_state_ == "listening") status = L"Listening - click to stop";
+        else if (owner->floating_state_ == "processing") status = L"Working on your request";
+        else if (owner->floating_state_ == "speaking") status = L"Speaking - click to stop";
+        SetTextColor(dc, RGB(195, 231, 220));
+        RECT status_rect{96, 42, bounds.right - 16, 63};
+        DrawTextW(dc, status, -1, &status_rect,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        const std::wstring transcript = ToWide(owner->floating_transcript_);
+        SetTextColor(dc, RGB(255, 255, 255));
+        RECT transcript_rect{96, 65, bounds.right - 16, bounds.bottom - 13};
+        DrawTextW(dc, transcript.c_str(), static_cast<int>(transcript.size()),
+                  &transcript_rect,
+                  DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
+        SelectObject(dc, old_font);
+        DeleteObject(title_font);
+      }
       EndPaint(window, &paint);
       return 0;
     }
+    case WM_TIMER:
+      if (owner != nullptr && wparam == kFloatingAnimationTimer) {
+        owner->floating_animation_phase_ =
+            (owner->floating_animation_phase_ + 1) % 24;
+        InvalidateRect(window, nullptr, FALSE);
+        return 0;
+      }
+      break;
     case WM_NCDESTROY:
       SetWindowLongPtrW(window, GWLP_USERDATA, 0);
       return DefWindowProcW(window, message, wparam, lparam);
@@ -364,6 +485,58 @@ bool FlutterWindow::OnCreate() {
         if (call.method_name() == "readActiveApp") {
           result->Success(
               flutter::EncodableValue(ReadForegroundAppText(GetHandle())));
+        } else if (call.method_name() == "transcribeOffline") {
+          const auto* arguments = call.arguments() == nullptr
+              ? nullptr
+              : std::get_if<flutter::EncodableMap>(call.arguments());
+          const std::vector<uint8_t>* pcm = nullptr;
+          int sample_rate = 0;
+          int channels = 0;
+          if (arguments != nullptr) {
+            for (const auto& entry : *arguments) {
+              const auto* key = std::get_if<std::string>(&entry.first);
+              if (key == nullptr) continue;
+              if (*key == "pcm") pcm = std::get_if<std::vector<uint8_t>>(&entry.second);
+              if (*key == "sampleRate") {
+                const auto* value = std::get_if<int32_t>(&entry.second);
+                if (value != nullptr) {
+                  sample_rate = *value;
+                } else if (const auto* wide_value =
+                               std::get_if<int64_t>(&entry.second)) {
+                  sample_rate = static_cast<int>(*wide_value);
+                }
+              }
+              if (*key == "channels") {
+                const auto* value = std::get_if<int32_t>(&entry.second);
+                if (value != nullptr) {
+                  channels = *value;
+                } else if (const auto* wide_value =
+                               std::get_if<int64_t>(&entry.second)) {
+                  channels = static_cast<int>(*wide_value);
+                }
+              }
+            }
+          }
+          if (pcm == nullptr || sample_rate <= 0 || channels <= 0) {
+            result->Error("invalid_audio", "Offline speech audio was invalid.");
+            return;
+          }
+          const HWND result_window = GetHandle();
+          auto shared_result =
+              std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
+                  std::move(result));
+          std::vector<uint8_t> audio = *pcm;
+          std::thread([result_window, shared_result,
+                       audio = std::move(audio), sample_rate,
+                       channels]() mutable {
+            auto* response = new OfflineTranscriptionResult{
+                shared_result,
+                TranscribeOfflinePcm16(audio, sample_rate, channels)};
+            if (!PostMessageW(result_window, kOfflineTranscriptionReady, 0,
+                              reinterpret_cast<LPARAM>(response))) {
+              delete response;
+            }
+          }).detach();
         } else if (call.method_name() == "openApprovedApp") {
           const std::string* app_id =
               call.arguments() == nullptr
@@ -388,11 +561,24 @@ bool FlutterWindow::OnCreate() {
           result->Success(flutter::EncodableValue(
               reinterpret_cast<INT_PTR>(launch_result) > 32));
         } else if (call.method_name() == "setFloatingState") {
-          const std::string* state =
-              call.arguments() == nullptr
-                  ? nullptr
-                  : std::get_if<std::string>(call.arguments());
-          if (state != nullptr) SetFloatingState(*state);
+          std::string state = "idle";
+          std::string transcript;
+          const auto* arguments = call.arguments() == nullptr
+              ? nullptr
+              : std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments != nullptr) {
+            for (const auto& entry : *arguments) {
+              const auto* key = std::get_if<std::string>(&entry.first);
+              const auto* value = std::get_if<std::string>(&entry.second);
+              if (key == nullptr || value == nullptr) continue;
+              if (*key == "state") state = *value;
+              if (*key == "transcript") transcript = *value;
+            }
+          } else if (call.arguments() != nullptr) {
+            const auto* value = std::get_if<std::string>(call.arguments());
+            if (value != nullptr) state = *value;
+          }
+          SetFloatingState(state, transcript);
           result->Success(flutter::EncodableValue(true));
         } else {
           result->NotImplemented();
@@ -455,6 +641,20 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case kOfflineTranscriptionReady: {
+      std::unique_ptr<OfflineTranscriptionResult> response(
+          reinterpret_cast<OfflineTranscriptionResult*>(lparam));
+      if (!response || !response->result) return 0;
+      flutter::EncodableMap payload;
+      payload[flutter::EncodableValue("available")] = flutter::EncodableValue(
+          response->transcription.model_available);
+      payload[flutter::EncodableValue("text")] =
+          flutter::EncodableValue(response->transcription.text);
+      payload[flutter::EncodableValue("confidence")] =
+          flutter::EncodableValue(response->transcription.confidence);
+      response->result->Success(flutter::EncodableValue(payload));
+      return 0;
+    }
     case WM_HOTKEY:
       if (wparam == kAssistantHotkey) {
         ActivateAssistant();

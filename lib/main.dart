@@ -310,7 +310,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       await _handleAssistantButton(showPopup: false);
       return null;
     }
-    if (call.method != 'activeWindowText' || call.arguments is! Map) return null;
+    if (call.method != 'activeWindowText' || call.arguments is! Map)
+      return null;
     final payload = Map<Object?, Object?>.from(call.arguments as Map);
     final title = payload['title']?.toString().trim() ?? '';
     final text = payload['text']?.toString().trim() ?? '';
@@ -325,26 +326,26 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     return null;
   }
 
-  bool _isWindowsScreenReadCommand(String command) =>
-      RegExp(
-        r'^(?:(?:please|can you|could you)\s+)?(?:read(?:\s+(?:(?:the|this|my|current|active)\s+)?(?:screen|window|app|email|message|document|page))?|ready)[.!? ]*$',
-      ).hasMatch(command.trim().toLowerCase());
+  bool _isWindowsScreenReadCommand(String command) => RegExp(
+    r'^(?:(?:please|can you|could you)\s+)?(?:read(?:\s+(?:(?:the|this|my|current|active)\s+)?(?:screen|window|app|email|message|document|page))?|ready)[.!? ]*$',
+  ).hasMatch(command.trim().toLowerCase());
 
-  bool _isContinueScreenReadCommand(String command) =>
-      RegExp(
-        r'^(continue(?: reading)?|read more|read the next (?:part|section)|next (?:part|section))[.!? ]*$',
-      ).hasMatch(command.trim().toLowerCase());
+  bool _isContinueScreenReadCommand(String command) => RegExp(
+    r'^(continue(?: reading)?|read more|read the next (?:part|section)|next (?:part|section))[.!? ]*$',
+  ).hasMatch(command.trim().toLowerCase());
 
-  bool _isRepeatScreenReadCommand(String command) =>
-      RegExp(
-        r'^(repeat(?: that| reading| the last part)?|read that again|repeat last part)[.!? ]*$',
-      ).hasMatch(command.trim().toLowerCase());
+  bool _isRepeatScreenReadCommand(String command) => RegExp(
+    r'^(repeat(?: that| reading| the last part)?|read that again|repeat last part)[.!? ]*$',
+  ).hasMatch(command.trim().toLowerCase());
 
   String? _approvedWindowsAppId(String command) {
     final app = command
         .toLowerCase()
         .trim()
-        .replaceFirst(RegExp(r'^(please\s+)?(open|launch|start)\s+(the\s+)?'), '')
+        .replaceFirst(
+          RegExp(r'^(please\s+)?(open|launch|start)\s+(the\s+)?'),
+          '',
+        )
         .replaceAll(RegExp(r'[.!?]+$'), '')
         .trim();
     return switch (app) {
@@ -380,7 +381,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _refreshAssistantPopup();
     var opened = false;
     try {
-      opened = await _windowsAccessibilityChannel.invokeMethod<bool>(
+      opened =
+          await _windowsAccessibilityChannel.invokeMethod<bool>(
             'openApprovedApp',
             appId,
           ) ??
@@ -402,7 +404,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   void _cacheWindowsScreenText(String title, String text) {
-    _windowsScreenTitle = title.trim().isEmpty ? 'the active app' : title.trim();
+    _windowsScreenTitle = title.trim().isEmpty
+        ? 'the active app'
+        : title.trim();
     _windowsScreenText = text.trim();
     _windowsScreenOffset = 0;
     _lastWindowsScreenChunk = '';
@@ -543,9 +547,16 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   Future<void> _startWakeWordListening() async {
-    if (!_isWindowsDesktop || !_wakeWordEnabled || _voiceSession ||
-        _wakeWordListening || _wakeLaunchInProgress || _assistantBusy ||
-        _processing || _ttsSpeaking || !mounted) return;
+    if (!_isWindowsDesktop ||
+        !_wakeWordEnabled ||
+        _voiceSession ||
+        _wakeWordListening ||
+        _wakeLaunchInProgress ||
+        _assistantBusy ||
+        _processing ||
+        _ttsSpeaking ||
+        !mounted)
+      return;
     _wakeWordRestartTimer?.cancel();
     _wakeWordListening = true;
     _refreshAssistantPopup();
@@ -554,8 +565,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         onError: (error) {
           if (!mounted || !_wakeWordEnabled || _voiceSession) return;
           _wakeWordListening = false;
-          _assistantError =
-              'Wake word recognition stopped. Check Windows speech and microphone settings.';
+          _assistantError = 'Wake word recognition stopped. Check Windows speech and microphone settings.';
           _refreshAssistantPopup();
         },
         onStatus: (status) {
@@ -572,8 +582,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       );
       if (!initialized) {
         _wakeWordListening = false;
-        _assistantError =
-            'Windows speech recognition is unavailable for the Assist wake word.';
+        _assistantError = 'Windows speech recognition is unavailable for the Assist wake word.';
         _refreshAssistantPopup();
         return;
       }
@@ -599,7 +608,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           onDevice: true,
         ),
         onResult: (result) {
-          if (!mounted || !_wakeWordEnabled || _voiceSession ||
+          if (!mounted ||
+              !_wakeWordEnabled ||
+              _voiceSession ||
               !result.finalResult) {
             return;
           }
@@ -622,16 +633,21 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       );
     } catch (_) {
       _wakeWordListening = false;
-      _assistantError =
-          'Could not start the Assist wake word. Check Windows microphone access.';
+      _assistantError = 'Could not start the Assist wake word. Check Windows microphone access.';
       _refreshAssistantPopup();
     }
   }
 
   void _scheduleWakeWordRestart() {
-    if (!_wakeWordEnabled || _voiceSession || _wakeWordListening ||
-        _wakeLaunchInProgress || _assistantBusy || _processing || !mounted ||
-        _ttsSpeaking || (_wakeWordRestartTimer?.isActive ?? false)) {
+    if (!_wakeWordEnabled ||
+        _voiceSession ||
+        _wakeWordListening ||
+        _wakeLaunchInProgress ||
+        _assistantBusy ||
+        _processing ||
+        !mounted ||
+        _ttsSpeaking ||
+        (_wakeWordRestartTimer?.isActive ?? false)) {
       return;
     }
     _wakeWordRestartTimer = Timer(const Duration(milliseconds: 900), () {
@@ -645,7 +661,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     final cleaned = value.trim();
     try {
       final preferences = await SharedPreferences.getInstance();
-      final saved = await preferences.setString('liyabona_knowledge_v1', cleaned);
+      final saved = await preferences.setString(
+        'liyabona_knowledge_v1',
+        cleaned,
+      );
       if (!mounted) return;
       setState(() => _knowledgeText = cleaned);
       _announce(
@@ -992,7 +1011,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           : 'idle';
       unawaited(
         _windowsAccessibilityChannel
-            .invokeMethod<void>('setFloatingState', state)
+            .invokeMethod<void>('setFloatingState', {
+              'state': state,
+              'transcript': _transcript,
+            })
             .catchError((_) {}),
       );
       _scheduleWakeWordRestart();
@@ -1029,7 +1051,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       },
     ),
     ..._notes.map(
-      (v) => {'type': 'note', 'query': v.title, 'title': v.title, 'body': v.body},
+      (v) => {
+        'type': 'note',
+        'query': v.title,
+        'title': v.title,
+        'body': v.body,
+      },
     ),
     ..._enquiries.map(
       (v) => {
@@ -1215,7 +1242,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           setState(() => found.first.checkedOut = DateTime.now());
           _go('Visitors');
         } else {
-          _lastMutationNotice = 'I could not find that checked-in visitor. Nothing changed.';
+          _lastMutationNotice =
+              'I could not find that checked-in visitor. Nothing changed.';
         }
         break;
       case 'create_call':
@@ -1310,7 +1338,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             .toList();
         if (found.isNotEmpty) setState(() => found.first.done = true);
         if (found.isEmpty) {
-          _lastMutationNotice = 'I could not find that open task. Nothing changed.';
+          _lastMutationNotice =
+              'I could not find that open task. Nothing changed.';
         }
         _go('Tasks');
         break;
@@ -1327,7 +1356,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   String _confirmationPrompt(String phrase, _AssistantResult result) {
-    if (result.action == 'read_screen' || _isReadRequest(phrase.toLowerCase())) {
+    if (result.action == 'read_screen' ||
+        _isReadRequest(phrase.toLowerCase())) {
       return 'I heard: $phrase. Would you like me to read this information?';
     }
     final proposal = result.reply.trim();
@@ -1373,9 +1403,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     final query = fields['query']?.toLowerCase().trim() ?? '';
     if (query.length < 2) return 'Please tell me which record you mean.';
 
-    bool matches(Iterable<String> values) => values.any(
-      (value) => value.toLowerCase().contains(query),
-    );
+    bool matches(Iterable<String> values) =>
+        values.any((value) => value.toLowerCase().contains(query));
     String value(String key, String old) =>
         fields[key]?.trim().isNotEmpty == true ? fields[key]!.trim() : old;
     DateTime? editedDate() {
@@ -1383,6 +1412,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       if (raw == null || raw.isEmpty) return null;
       return DateTime.tryParse(raw);
     }
+
     bool didEdit = false;
     String? changed;
 
@@ -1393,7 +1423,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           for (var i = 0; i < _notes.length; i++)
             if (matches([_notes[i].title, _notes[i].body])) i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('note', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('note', indexes.length);
         final i = indexes.single;
         final old = _notes[i];
         if (delete) {
@@ -1403,7 +1434,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           final title = value('title', old.title);
           final body = value('body', old.body);
           didEdit = title != old.title || body != old.body;
-          if (!didEdit) return 'Tell me what you would like changed in that note.';
+          if (!didEdit)
+            return 'Tell me what you would like changed in that note.';
           _notes[i] = _Note(title, body, old.when);
           changed = title;
         }
@@ -1415,7 +1447,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           for (var i = 0; i < _tasks.length; i++)
             if (matches([_tasks[i].title, _tasks[i].detail])) i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('task', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('task', indexes.length);
         final i = indexes.single;
         final old = _tasks[i];
         if (delete) {
@@ -1425,7 +1458,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           final title = value('title', old.title);
           final detail = value('detail', old.detail);
           didEdit = title != old.title || detail != old.detail;
-          if (!didEdit) return 'Tell me what you would like changed in that task.';
+          if (!didEdit)
+            return 'Tell me what you would like changed in that task.';
           _tasks[i] = _ReceptionTask(title, detail, old.created, old.done);
           changed = title;
         }
@@ -1439,9 +1473,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               _appointments[i].title,
               _appointments[i].name,
               _appointments[i].category,
-            ])) i,
+            ]))
+              i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('appointment', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('appointment', indexes.length);
         final i = indexes.single;
         final old = _appointments[i];
         if (delete) {
@@ -1456,11 +1492,21 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           }
           final location = value('location', old.location);
           final detail = value('detail', old.category);
-          didEdit = title != old.title || name != old.name ||
-              (date != null && date != old.when) || location != old.location ||
+          didEdit =
+              title != old.title ||
+              name != old.name ||
+              (date != null && date != old.when) ||
+              location != old.location ||
               detail != old.category;
-          if (!didEdit) return 'Tell me what you would like changed in that appointment.';
-          _appointments[i] = _Appointment(title, name, date ?? old.when, location, detail);
+          if (!didEdit)
+            return 'Tell me what you would like changed in that appointment.';
+          _appointments[i] = _Appointment(
+            title,
+            name,
+            date ?? old.when,
+            location,
+            detail,
+          );
           changed = title;
         }
         _go('Calendar');
@@ -1469,9 +1515,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       case 'calls':
         final indexes = [
           for (var i = 0; i < _calls.length; i++)
-            if (matches([_calls[i].caller, _calls[i].reason, _calls[i].phone])) i,
+            if (matches([_calls[i].caller, _calls[i].reason, _calls[i].phone]))
+              i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('call', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('call', indexes.length);
         final i = indexes.single;
         final old = _calls[i];
         if (delete) {
@@ -1485,9 +1533,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               ? fields['callback']!.toLowerCase() == 'true'
               : old.callback;
           final priority = value('priority', old.priority);
-          didEdit = name != old.caller || phone != old.phone || detail != old.reason ||
-              callback != old.callback || priority != old.priority;
-          if (!didEdit) return 'Tell me what you would like changed in that call record.';
+          didEdit =
+              name != old.caller ||
+              phone != old.phone ||
+              detail != old.reason ||
+              callback != old.callback ||
+              priority != old.priority;
+          if (!didEdit)
+            return 'Tell me what you would like changed in that call record.';
           _calls[i] = _Call(name, phone, detail, callback, priority, old.when);
           changed = name;
         }
@@ -1497,9 +1550,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       case 'enquiries':
         final indexes = [
           for (var i = 0; i < _enquiries.length; i++)
-            if (matches([_enquiries[i].name, _enquiries[i].category, _enquiries[i].detail])) i,
+            if (matches([
+              _enquiries[i].name,
+              _enquiries[i].category,
+              _enquiries[i].detail,
+            ]))
+              i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('enquiry', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('enquiry', indexes.length);
         final i = indexes.single;
         final old = _enquiries[i];
         if (delete) {
@@ -1511,9 +1570,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           final detail = value('detail', old.detail);
           final status = value('status', old.status);
           final priority = value('priority', old.priority);
-          didEdit = name != old.name || category != old.category || detail != old.detail ||
-              status != old.status || priority != old.priority;
-          if (!didEdit) return 'Tell me what you would like changed in that enquiry.';
+          didEdit =
+              name != old.name ||
+              category != old.category ||
+              detail != old.detail ||
+              status != old.status ||
+              priority != old.priority;
+          if (!didEdit)
+            return 'Tell me what you would like changed in that enquiry.';
           _enquiries[i] = _Enquiry(name, category, detail, status, priority);
           changed = name;
         }
@@ -1525,7 +1589,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           for (var i = 0; i < _documents.length; i++)
             if (matches([_documents[i].title, _documents[i].summary])) i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('document', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('document', indexes.length);
         final i = indexes.single;
         final old = _documents[i];
         if (delete) {
@@ -1535,7 +1600,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           final title = value('title', old.title);
           final detail = value('detail', old.summary);
           didEdit = title != old.title || detail != old.summary;
-          if (!didEdit) return 'Tell me what you would like changed in that document.';
+          if (!didEdit)
+            return 'Tell me what you would like changed in that document.';
           _documents[i] = _Document(title, detail, old.when);
           changed = title;
         }
@@ -1546,9 +1612,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       case 'emails':
         final indexes = [
           for (var i = 0; i < _emails.length; i++)
-            if (matches([_emails[i].subject, _emails[i].recipient, _emails[i].body])) i,
+            if (matches([
+              _emails[i].subject,
+              _emails[i].recipient,
+              _emails[i].body,
+            ]))
+              i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('email draft', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('email draft', indexes.length);
         final i = indexes.single;
         final old = _emails[i];
         if (delete) {
@@ -1558,8 +1630,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           final recipient = value('recipient', old.recipient);
           final subject = value('subject', old.subject);
           final body = value('body', old.body);
-          didEdit = recipient != old.recipient || subject != old.subject || body != old.body;
-          if (!didEdit) return 'Tell me what you would like changed in that email draft.';
+          didEdit =
+              recipient != old.recipient ||
+              subject != old.subject ||
+              body != old.body;
+          if (!didEdit)
+            return 'Tell me what you would like changed in that email draft.';
           _emails[i] = _EmailDraft(recipient, subject, body, old.when);
           changed = subject;
         }
@@ -1569,9 +1645,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       case 'visitors':
         final indexes = [
           for (var i = 0; i < _visitors.length; i++)
-            if (matches([_visitors[i].name, _visitors[i].host, _visitors[i].purpose])) i,
+            if (matches([
+              _visitors[i].name,
+              _visitors[i].host,
+              _visitors[i].purpose,
+            ]))
+              i,
         ];
-        if (indexes.length != 1) return _notUniqueNotice('visitor record', indexes.length);
+        if (indexes.length != 1)
+          return _notUniqueNotice('visitor record', indexes.length);
         final i = indexes.single;
         final old = _visitors[i];
         if (delete) {
@@ -1581,8 +1663,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           final name = value('name', old.name);
           final host = value('host', old.host);
           final purpose = value('purpose', old.purpose);
-          didEdit = name != old.name || host != old.host || purpose != old.purpose;
-          if (!didEdit) return 'Tell me what you would like changed in that visitor record.';
+          didEdit =
+              name != old.name || host != old.host || purpose != old.purpose;
+          if (!didEdit)
+            return 'Tell me what you would like changed in that visitor record.';
           final replacement = _Visitor(name, host, purpose, old.checkedIn)
             ..checkedOut = old.checkedOut;
           _visitors[i] = replacement;
@@ -1596,14 +1680,13 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
     setState(() {});
     unawaited(_persistWindowsData());
-    return delete
-        ? 'Deleted $changed.'
-        : 'Updated $changed.';
+    return delete ? 'Deleted $changed.' : 'Updated $changed.';
   }
 
   String _notUniqueNotice(String type, int count) => switch (count) {
     0 => 'I could not find that $type. Nothing was changed.',
-    _ => 'I found more than one matching $type. Please say its exact name or title.',
+    _ =>
+      'I found more than one matching $type. Please say its exact name or title.',
   };
 
   Future<void> _askCopilot(String question) async {
@@ -1630,7 +1713,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     final result = await _askModel(question);
     String answer;
     if (result != null) {
-      if (_requiresAssistantConfirmation(result.action, question.toLowerCase())) {
+      if (_requiresAssistantConfirmation(
+        result.action,
+        question.toLowerCase(),
+      )) {
         final approved = await _confirmByKey(
           _confirmationPrompt(question, result),
         );
@@ -1648,7 +1734,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             : result.reply;
       }
     } else {
-      final approved = !_requiresLocalConfirmation(question.toLowerCase()) ||
+      final approved =
+          !_requiresLocalConfirmation(question.toLowerCase()) ||
           await _confirmByKey(
             'This request will read or change information. Do you want me to continue?',
           );
@@ -1677,7 +1764,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
   }
 
-  Future<bool> _confirmByKey(String details, {bool speakPrompt = true}) async => true;
+  Future<bool> _confirmByKey(String details, {bool speakPrompt = true}) async =>
+      true;
 
   Future<void> _toggleVoice({bool greet = false}) async {
     if (_voiceSession || _listening) {
@@ -1712,8 +1800,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
     try {
       if (!await _audioRecorder.hasPermission()) {
-        _assistantError =
-            'Microphone access is blocked. Allow it in Windows or browser settings.';
+        _assistantError = 'Microphone access is blocked. Allow it in Windows or browser settings.';
       }
     } catch (_) {
       // The system speech service may still be available as the fallback.
@@ -1769,8 +1856,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     );
     if (!_speechReady) {
       _speechLocale = null;
-      _assistantError =
-          'Built-in speech recognition is unavailable; online voice recognition will still be tried.';
+      _assistantError = _isWindowsDesktop
+          ? 'Windows speech recognition backup is unavailable. Online AI and the bundled Whisper model are still available.'
+          : 'Built-in speech recognition is unavailable; online voice recognition will still be tried.';
     } else {
       _assistantError = '';
       try {
@@ -1794,7 +1882,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               ? 'Windows default English'
               : localeById[selectedLocale]!.name;
           _assistantError =
-              'Online transcription is set to South African English. The offline fallback will use $selectedName.';
+              'Online transcription uses South African English. Whisper uses English; the Windows backup uses $selectedName.';
         }
       } catch (_) {
         _speechLocale = null;
@@ -1948,21 +2036,18 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _transcript = 'Transcribing your request…';
     });
     _refreshAssistantPopup();
-    final result = await _askModel(
-      '',
-      audioBase64: base64Encode(wav),
-    );
+    final result = await _askModel('', audioBase64: base64Encode(wav));
     _finishingAudio = false;
     if (!_voiceSession || !mounted) return;
     if (result == null) {
-      await _useOfflineSpeech();
+      await _useOfflineSpeech(pcm: pcm);
       return;
     }
     final cleaned = result.transcript.trim();
     const transcriptConfidenceFloor = 0.72;
     if (cleaned.length < 2 || result.confidence < transcriptConfidenceFloor) {
       if (!_forceOfflineSpeech && _speechReady) {
-        await _useOfflineSpeech();
+        await _useOfflineSpeech(pcm: pcm);
         return;
       }
       _processing = false;
@@ -1977,10 +2062,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _forceOfflineSpeech = false;
     setState(() => _transcript = 'I heard: $cleaned');
     _refreshAssistantPopup();
-    await _handleVoiceCommand(
-      cleaned,
-      assistantResultOverride: result,
-    );
+    await _handleVoiceCommand(cleaned, assistantResultOverride: result);
   }
 
   Uint8List _wrapPcmAsWav(Uint8List pcm) {
@@ -2011,7 +2093,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     return wav;
   }
 
-  Future<void> _useOfflineSpeech() async {
+  Future<void> _useOfflineSpeech({Uint8List? pcm}) async {
     if (!_voiceSession || !mounted) return;
     _audioCheckTimer?.cancel();
     _audioCheckTimer = null;
@@ -2021,6 +2103,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     await _audioSubscription?.cancel();
     _audioSubscription = null;
     _finishingAudio = false;
+    final capturedPcm = pcm ?? _audioBuffer.takeBytes();
+    _forceOfflineSpeech = true;
+    if (_isWindowsDesktop && await _transcribeWithLocalWhisper(capturedPcm)) {
+      return;
+    }
     if (!_speechReady) {
       _voiceSession = false;
       _processing = false;
@@ -2030,12 +2117,53 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       await _speak('Repeat again.');
       return;
     }
-    _forceOfflineSpeech = true;
     _processing = false;
     _assistantError =
-        'Online speech recognition is unavailable. Using this device’s built-in speech recognition.';
+        'Local Whisper is unavailable. Using Windows speech recognition.';
     _refreshAssistantPopup();
     await _listenOfflineOnce();
+  }
+
+  Future<bool> _transcribeWithLocalWhisper(Uint8List pcm) async {
+    if (pcm.length < 8000 || !_voiceSession || !mounted) return false;
+    setState(() {
+      _listening = false;
+      _processing = true;
+      _transcript = 'Using offline speech recognition…';
+      _assistantError =
+          'Gemini is unavailable. Liyabona is transcribing on this computer.';
+    });
+    _refreshAssistantPopup();
+    try {
+      final response = await _windowsAccessibilityChannel
+          .invokeMapMethod<String, Object?>('transcribeOffline', {
+            'pcm': pcm,
+            'sampleRate': _recordingSampleRate,
+            'channels': _recordingChannels,
+          })
+          .timeout(const Duration(seconds: 45));
+      final recognized = response?['text']?.toString().trim() ?? '';
+      final confidenceValue = response?['confidence'];
+      final confidence = confidenceValue is num
+          ? confidenceValue.toDouble()
+          : 0.0;
+      if (response?['available'] != true ||
+          recognized.length < 2 ||
+          confidence < 0.05) {
+        _processing = false;
+        _refreshAssistantPopup();
+        return false;
+      }
+      _transcript = 'I heard: $recognized';
+      _assistantError = 'Transcribed locally on this computer.';
+      _refreshAssistantPopup();
+      await _handleVoiceCommand(recognized, consultAi: false);
+      return true;
+    } catch (_) {
+      _processing = false;
+      _refreshAssistantPopup();
+      return false;
+    }
   }
 
   Future<void> _listenOfflineOnce() async {
@@ -2303,8 +2431,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         // Give the built-in command handler the same recognized words before
         // falling back to the AI's spoken answer or clarification.
         if (_requiresLocalConfirmation(command)) {
-          const confirmation =
-              'This request will read or change information.';
+          const confirmation = 'This request will read or change information.';
           _chat.add(_ChatLine(true, phrase));
           _chat.add(_ChatLine(false, confirmation));
           if (mounted) setState(() => _transcript = '“$phrase”\n$confirmation');
@@ -2372,8 +2499,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
     }
     if (!skipLocalConfirmation && _requiresLocalConfirmation(command)) {
-      const confirmation =
-          'This request will read or change information.';
+      const confirmation = 'This request will read or change information.';
       _chat.add(_ChatLine(true, phrase));
       _chat.add(_ChatLine(false, confirmation));
       if (mounted) setState(() => _transcript = '“$phrase”\n$confirmation');
@@ -2449,8 +2575,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _go(destination);
         _interpretation = 'Opening $destination';
         _matchConfidence = match.confidence;
-        response =
-            'I understood that as $destination. Opening it now.';
+        response = 'I understood that as $destination. Opening it now.';
       } else {
         _interpretation = 'I could not match that to a screen';
         _matchConfidence = .2;
@@ -2463,14 +2588,13 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       final match = RegExp(
         r'^(?:delete|remove)\s+(?:the\s+)?(email draft|appointments?|notes?|tasks?|calls?|enquiries?|documents?|emails?|visitors?)\s+(.+)$',
       ).firstMatch(command)!;
-      final target = match.group(2)!.replaceFirst(
-        RegExp(r'^(?:called|named|about)\s+'),
-        '',
-      );
-      response = _lastMutationNotice = _mutateRecord(
-        {'record_type': match.group(1)!, 'query': target},
-        delete: true,
-      );
+      final target = match
+          .group(2)!
+          .replaceFirst(RegExp(r'^(?:called|named|about)\s+'), '');
+      response = _lastMutationNotice = _mutateRecord({
+        'record_type': match.group(1)!,
+        'query': target,
+      }, delete: true);
     } else if (RegExp(
       r'^(?:edit|update|change)\s+(?:the\s+)?(email draft|appointments?|notes?|tasks?|calls?|enquiries?|documents?|emails?|visitors?)\s+(.+?)\s+(title|body|detail|name|date time|location|phone|priority|status|category|recipient|subject|host|purpose)\s+to\s+(.+)$',
     ).hasMatch(command)) {
@@ -3620,7 +3744,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     backgroundColor: forest,
     foregroundColor: Colors.white,
     child: _AnimatedAssistantCharacter(
-      active: _voiceSession || _wakeWordListening || _assistantBusy || _ttsSpeaking,
+      active:
+          _voiceSession || _wakeWordListening || _assistantBusy || _ttsSpeaking,
       speaking: _ttsSpeaking,
       listening: _listening || _wakeWordListening,
       size: 46,
@@ -4879,7 +5004,7 @@ class _LocalNotice extends StatelessWidget {
         SizedBox(width: 8),
         Expanded(
           child: Text(
-            'The microphone starts only when you open a voice session. Online, Liyabona sends short audio clips through its secure Vercel service to Google Gemini for English (South Africa) transcription and command handling. Audio clips are held in memory by the app and are not saved as recordings; Google processes submitted audio under its API data terms. When online recognition is unavailable, the app can use the device speech service instead. College systems and mailboxes are not connected.',
+            'The microphone starts only when you open a voice session. Online, Liyabona sends short audio clips through its secure Vercel service to Google Gemini for English (South Africa) transcription and command handling. Audio clips are held in memory by the app and are not saved as recordings; Google processes submitted audio under its API data terms. On Windows, if the online service is unavailable or slow, Liyabona uses its bundled Whisper model locally, then Windows speech recognition if needed. Other platforms use the device speech service. College systems and mailboxes are not connected.',
             style: TextStyle(
               fontSize: 10,
               height: 1.45,
@@ -6221,7 +6346,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Windows: click the small Liyabona microphone button or press Control + Alt + Space to start a voice session without restoring the full app window. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. If Gemini is offline or audio transcription takes more than eight seconds, Windows switches to built-in speech recognition. If Liyabona cannot make out the words, it says “Repeat again.” To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to Gemini or change the other app.',
+              'Windows: click the Liyabona assistant button or press Control + Alt + Space to start a voice session without restoring the full app window. The button expands into a status panel while Liyabona listens, works, or speaks. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. If Gemini is offline or takes more than eight seconds, Liyabona transcribes locally with its bundled Whisper model; Windows speech recognition is the backup if the model is unavailable. If Liyabona cannot make out the words, it says “Repeat again.” To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to Gemini or change the other app.',
               style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],

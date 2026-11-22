@@ -1,6 +1,31 @@
 cmake_minimum_required(VERSION 3.14)
 project(runner LANGUAGES CXX)
 
+# Whisper.cpp is compiled into liyabona.exe as a static CPU library. This keeps
+# offline transcription independent of an unsigned sidecar executable or DLL.
+include(FetchContent)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static dependencies" FORCE)
+set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(GGML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GGML_NATIVE OFF CACHE BOOL "Use a portable CPU target" FORCE)
+set(GGML_OPENMP OFF CACHE BOOL "Avoid an extra runtime dependency" FORCE)
+set(GGML_CUDA OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+set(GGML_SYCL OFF CACHE BOOL "" FORCE)
+set(GGML_OPENCL OFF CACHE BOOL "" FORCE)
+set(GGML_METAL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(whisper_cpp
+  GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
+  GIT_TAG v1.7.6
+  GIT_SHALLOW TRUE
+  GIT_SUBMODULES ggml
+  GIT_SUBMODULES_RECURSE TRUE
+)
+FetchContent_MakeAvailable(whisper_cpp)
+
 # Define the application target. To change its name, change BINARY_NAME in the
 # top-level CMakeLists.txt, not the value here, or `flutter run` will no longer
 # work.
@@ -8,6 +33,7 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "whisper_transcriber.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -35,7 +61,23 @@ target_compile_definitions(${BINARY_NAME} PRIVATE RECORD_WINDOWS_STATIC)
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "shell32.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE whisper)
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+# The GitHub Actions build (and local Windows builds using the helper script)
+# place the model next to the executable. No model is downloaded by the app.
+set(LIYABONA_WHISPER_MODEL
+  "${CMAKE_CURRENT_SOURCE_DIR}/../models/ggml-small.en-q5_1.bin")
+if(EXISTS "${LIYABONA_WHISPER_MODEL}")
+  add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+      "$<TARGET_FILE_DIR:${BINARY_NAME}>/speech_models"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${LIYABONA_WHISPER_MODEL}"
+      "$<TARGET_FILE_DIR:${BINARY_NAME}>/speech_models/ggml-small.en-q5_1.bin"
+    COMMENT "Bundling the offline English speech model"
+    VERBATIM)
+endif()
 
 # Build the Windows speech recognizer directly into the app executable. The
 # package's Dart side remains registered normally; this avoids loading an
