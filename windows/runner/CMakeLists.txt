@@ -5,6 +5,8 @@ project(runner LANGUAGES CXX)
 # offline transcription independent of an unsigned sidecar executable or DLL.
 include(FetchContent)
 set(LIYABONA_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(LIYABONA_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
+set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/whisper-install")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static dependencies" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -26,6 +28,8 @@ FetchContent_Declare(whisper_cpp
   GIT_SUBMODULES_RECURSE TRUE
 )
 FetchContent_MakeAvailable(whisper_cpp)
+set(CMAKE_INSTALL_PREFIX "${LIYABONA_INSTALL_PREFIX}")
+unset(LIYABONA_INSTALL_PREFIX)
 # whisper.cpp sets a global runtime output directory for its own CLI tools. Put
 # Flutter's executable back in its standard runner/<Configuration> directory.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${LIYABONA_RUNTIME_OUTPUT_DIRECTORY}")
