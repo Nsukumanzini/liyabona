@@ -61,10 +61,12 @@ class LocalEngine {
         '0',
         '--no-display-prompt',
         '--simple-io',
+          '--no-conversation',
         '-p',
         '<|im_start|>system\nYou assist a blind receptionist at Gert Sibande TVET College, Ermelo Campus. Be concise. Never claim actions or invent records. /no_think<|im_end|>\n<|im_start|>user\n$prompt /no_think<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n',
       ], runInShell: false);
       _process = process;
+      await process.stdin.close();
       if (generation != _generation) {
         process.kill();
         return;
