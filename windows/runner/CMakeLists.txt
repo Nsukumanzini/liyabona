@@ -12,6 +12,11 @@ set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# Use the x64 baseline (SSE2). Some Windows 11 laptops do not expose AVX,
+# and a single AVX instruction in the statically linked Whisper code can crash
+# the entire Flutter executable with STATUS_ILLEGAL_INSTRUCTION (0xC000001D).
+set(GGML_AVX OFF CACHE BOOL "Portable x64 baseline" FORCE)
+set(GGML_SSE42 OFF CACHE BOOL "Portable x64 baseline" FORCE)
 set(GGML_AVX2 OFF CACHE BOOL "Portable baseline" FORCE)
 set(GGML_FMA OFF CACHE BOOL "Portable baseline" FORCE)
 set(GGML_F16C OFF CACHE BOOL "Portable baseline" FORCE)

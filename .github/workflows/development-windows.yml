@@ -58,6 +58,17 @@ jobs:
       - name: Build release app
         run: flutter build windows --release
 
+      - name: Verify portable Whisper CPU configuration
+        shell: pwsh
+        run: |
+          $cache = "build/windows/x64/runner/CMakeCache.txt"
+          if (-not (Test-Path $cache)) { throw "CMake cache was not produced." }
+          foreach ($option in @("GGML_AVX", "GGML_SSE42", "GGML_AVX2", "GGML_FMA", "GGML_F16C", "GGML_AVX512", "GGML_NATIVE")) {
+            if (-not (Select-String -Path $cache -Pattern "^${option}:BOOL=OFF$" -Quiet)) {
+              throw "$option is not disabled; the packaged app may require unsupported CPU instructions."
+            }
+          }
+
       - name: Verify speech recognizer is linked into the app
         shell: pwsh
         run: |
