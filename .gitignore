@@ -46,3 +46,8 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Downloaded local AI assets are packaged by CI, never committed.
+*.gguf
+/windows/models/
+/windows/ai-runtime/

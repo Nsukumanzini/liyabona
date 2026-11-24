@@ -3,7 +3,7 @@ name: Build Windows app
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "development/**"]
 
 jobs:
   build:
@@ -15,6 +15,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.50.0"
           channel: stable
           cache: true
 
@@ -33,6 +34,25 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Analyse Flutter application
+        run: flutter analyze
+
+      - name: Test Flutter application
+        run: flutter test
+
+      - name: Check deterministic components
+        shell: pwsh
+        run: |
+          dart tool/check_voice_interaction.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart tool/check_knowledge.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart tool/check_permissions.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check final offline release prerequisites
+        run: dart tool/check_release_readiness.dart
 
       - name: Build release app
         run: flutter build windows --release

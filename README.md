@@ -1,3 +1,11 @@
+> Release status: **Blocked by critical issues.** See [release readiness](docs/RELEASE_READINESS.md). The final offline assistant and installer are not complete.
+
+> Development status: Phase 2 is incomplete. External AI transport has been
+> removed from this working copy. Windows speech uses local Whisper and then
+> Windows speech recognition. Local Qwen conversation is not integrated.
+> Older cloud setup descriptions below are historical and no longer enable AI.
+> See docs/PHASE2_STATUS.md and docs/MANUAL_ACCEPTANCE.md before testing.
+
 # Liyabona Reception
 
 Liyabona is an accessible reception workspace for TVET Student Support Services. It supports Android, iOS, Windows and web, with voice navigation, spoken screen summaries, keyboard and touch controls, larger text and high contrast.

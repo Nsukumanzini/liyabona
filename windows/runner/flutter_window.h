@@ -35,6 +35,7 @@ class FlutterWindow : public Win32Window {
       accessibility_channel_;
   bool accessibility_hotkey_registered_ = false;
   bool assistant_hotkey_registered_ = false;
+  bool emergency_stop_hotkey_registered_ = false;
   HWND floating_button_ = nullptr;
   std::string floating_state_ = "idle";
   std::string floating_transcript_;

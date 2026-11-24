@@ -22,6 +22,7 @@ namespace {
 constexpr int kReadActiveAppHotkey = 0x4C;
 constexpr UINT kReadActiveAppKey = 'R';
 constexpr int kAssistantHotkey = 0x4D;
+constexpr int kEmergencyStopHotkey = 0x4E;
 constexpr UINT kOfflineTranscriptionReady = WM_APP + 41;
 constexpr UINT_PTR kFloatingAnimationTimer = 920;
 constexpr wchar_t kFloatingButtonClass[] = L"LiyabonaFloatingVoiceButton";
@@ -590,6 +591,9 @@ bool FlutterWindow::OnCreate() {
   assistant_hotkey_registered_ = RegisterHotKey(
       GetHandle(), kAssistantHotkey, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
       VK_SPACE) != 0;
+  emergency_stop_hotkey_registered_ = RegisterHotKey(
+      GetHandle(), kEmergencyStopHotkey, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+      VK_ESCAPE) != 0;
   CreateFloatingButton();
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
@@ -606,6 +610,10 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (emergency_stop_hotkey_registered_) {
+    UnregisterHotKey(GetHandle(), kEmergencyStopHotkey);
+    emergency_stop_hotkey_registered_ = false;
+  }
   if (floating_button_ != nullptr) {
     DestroyWindow(floating_button_);
     floating_button_ = nullptr;
@@ -630,6 +638,13 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // Emergency cancellation takes precedence over plugin message handling.
+  if (message == WM_HOTKEY && wparam == kEmergencyStopHotkey) {
+    if (accessibility_channel_) {
+      accessibility_channel_->InvokeMethod("emergencyStop", nullptr);
+    }
+    return 0;
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

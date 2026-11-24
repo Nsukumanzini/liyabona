@@ -1,4 +1,8 @@
 import 'dart:async';
+
+import 'voice/interaction.dart';
+import 'knowledge/retrieval.dart';
+
 import 'dart:convert';
 import 'dart:math' show sqrt;
 import 'dart:typed_data';
@@ -8,7 +12,6 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:http/http.dart' as http;
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,8 +24,6 @@ const paper = Color(0xFFF5F7F5);
 const line = Color(0xFFE7ECE9);
 const amber = Color(0xFFFFF1D8);
 const redSoft = Color(0xFFFFE9E5);
-const _assistantEndpoint =
-    'https://campuscare-reception-demo.vercel.app/api/assistant';
 const _windowsAccessibilityChannel = MethodChannel('liyabona/accessibility');
 
 void main() => runApp(const LiyabonaApp());
@@ -35,6 +36,7 @@ class LiyabonaApp extends StatefulWidget {
 
 class _LiyabonaAppState extends State<LiyabonaApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
+  final _interaction = VoiceInteraction();
   final _speech = stt.SpeechToText();
   final _audioRecorder = AudioRecorder();
   final _tts = FlutterTts();
@@ -306,6 +308,27 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   Future<Object?> _handleWindowsAccessibilityCall(MethodCall call) async {
+    if (call.method == 'emergencyStop') {
+      _interaction.cancel();
+      _voiceSession = false;
+      _processing = false;
+      _assistantBusy = false;
+      _listening = false;
+      _listenRestartTimer?.cancel();
+      _audioCheckTimer?.cancel();
+      _stopSpeaking();
+      await _speech.stop();
+      try {
+        await _audioRecorder.stop();
+      } catch (_) {}
+      await _audioSubscription?.cancel();
+      _audioSubscription = null;
+      _audioBuffer = BytesBuilder(copy: false);
+      _transcript = 'Voice session stopped. You have control.';
+      _refreshAssistantPopup();
+      await _speak(_transcript);
+      return null;
+    }
     if (call.method == 'activateAssistant') {
       await _handleAssistantButton(showPopup: false);
       return null;
@@ -1111,58 +1134,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     String text, {
     String? audioBase64,
   }) async {
-    if (text.trim().isEmpty && audioBase64 == null) return null;
-    try {
-      // Do not let a stalled preferences plugin block every AI request.
-      try {
-        await _knowledgeReady.timeout(const Duration(seconds: 2));
-      } catch (_) {}
-      final history = _chat.toList();
-      if (history.isNotEmpty &&
-          history.last.user &&
-          text.isNotEmpty &&
-          history.last.text == text) {
-        history.removeLast();
-      }
-      final response = await http
-          .post(
-            Uri.parse(_assistantEndpoint),
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'text': text,
-              if (audioBase64 != null) 'audio': audioBase64,
-              'screen': _page,
-              'summary': _pageSummary(),
-              'knowledge': _knowledgeText,
-              'records': _assistantRecords,
-              'history': history
-                  .skip(history.length > 6 ? history.length - 6 : 0)
-                  .map(
-                    (line) => {
-                      'role': line.user ? 'user' : 'assistant',
-                      'content': line.text,
-                    },
-                  )
-                  .toList(),
-            }),
-          )
-          .timeout(Duration(seconds: audioBase64 == null ? 30 : 8));
-      if (response.statusCode != 200) {
-        final body = jsonDecode(response.body);
-        _assistantError = body is Map && body['error'] is String
-            ? body['error'] as String
-            : 'AI service is temporarily unavailable.';
-        return null;
-      }
-      final data = jsonDecode(response.body);
-      if (data is! Map<String, dynamic>) return null;
-      _assistantError = '';
-      return _AssistantResult.fromJson(data);
-    } catch (_) {
-      _assistantError =
-          'Could not reach Liyabona AI. Check the network and try again.';
-      return null;
-    }
+    // No external transport is permitted. Deterministic reception routing
+    // remains available while the local language engine is not configured.
+    _assistantError =
+        'Local language assistance is unavailable. Use a reception command.';
+    return null;
   }
 
   void _applyAssistantAction(_AssistantResult result) {
@@ -1764,8 +1740,38 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
   }
 
-  Future<bool> _confirmByKey(String details, {bool speakPrompt = true}) async =>
-      true;
+  Future<bool> _confirmByKey(String details, {bool speakPrompt = true}) async {
+    await _speech.stop();
+    try {
+      await _audioRecorder.stop();
+    } catch (_) {}
+    _listening = false;
+    _refreshAssistantPopup();
+    if (speakPrompt) {
+      await _speak('$details. Choose Confirm to proceed, or Cancel.');
+    }
+    if (!mounted) return false;
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm request'),
+        content: Text(details),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+    return approved == true;
+  }
 
   Future<void> _toggleVoice({bool greet = false}) async {
     if (_voiceSession || _listening) {
@@ -1909,7 +1915,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   Future<void> _listenOnce() async {
     if (!_voiceSession || !mounted || _processing || _listening) return;
-    if (_forceOfflineSpeech) {
+    if (_forceOfflineSpeech && !_isWindowsDesktop) {
       await _listenOfflineOnce();
       return;
     }
@@ -2029,40 +2035,16 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
 
     final pcm = _audioBuffer.takeBytes();
-    final wav = _wrapPcmAsWav(pcm);
+
     setState(() {
       _listening = false;
       _processing = true;
       _transcript = 'Transcribing your request…';
     });
     _refreshAssistantPopup();
-    final result = await _askModel('', audioBase64: base64Encode(wav));
     _finishingAudio = false;
     if (!_voiceSession || !mounted) return;
-    if (result == null) {
-      await _useOfflineSpeech(pcm: pcm);
-      return;
-    }
-    final cleaned = result.transcript.trim();
-    const transcriptConfidenceFloor = 0.72;
-    if (cleaned.length < 2 || result.confidence < transcriptConfidenceFloor) {
-      if (!_forceOfflineSpeech && _speechReady) {
-        await _useOfflineSpeech(pcm: pcm);
-        return;
-      }
-      _processing = false;
-      setState(() {
-        _transcript = 'Repeat again.';
-      });
-      _refreshAssistantPopup();
-      await _speak('Repeat again.');
-      _scheduleListenRestart();
-      return;
-    }
-    _forceOfflineSpeech = false;
-    setState(() => _transcript = 'I heard: $cleaned');
-    _refreshAssistantPopup();
-    await _handleVoiceCommand(cleaned, assistantResultOverride: result);
+    await _useOfflineSpeech(pcm: pcm);
   }
 
   Uint8List _wrapPcmAsWav(Uint8List pcm) {
@@ -2125,13 +2107,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   Future<bool> _transcribeWithLocalWhisper(Uint8List pcm) async {
+    final generation = _interaction.generation;
+    _interaction.move(VoicePhase.transcribing);
     if (pcm.length < 8000 || !_voiceSession || !mounted) return false;
     setState(() {
       _listening = false;
       _processing = true;
       _transcript = 'Using offline speech recognition…';
-      _assistantError =
-          'Gemini is unavailable. Liyabona is transcribing on this computer.';
+      _assistantError = 'Liyabona is transcribing on this computer.';
     });
     _refreshAssistantPopup();
     try {
@@ -2142,6 +2125,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             'channels': _recordingChannels,
           })
           .timeout(const Duration(seconds: 45));
+      if (!_interaction.isCurrent(generation) || !_voiceSession) return true;
+      _interaction.move(VoicePhase.understanding);
       final recognized = response?['text']?.toString().trim() ?? '';
       final confidenceValue = response?['confidence'];
       final confidence = confidenceValue is num
@@ -2270,7 +2255,35 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     bool skipLocalConfirmation = false,
     _AssistantResult? assistantResultOverride,
   }) async {
+    if (_interaction.awaitingConfirmation) {
+      if (!_interaction.answer(phrase)) {
+        await _speak('Please say yes or no.');
+      }
+      return;
+    }
     final command = phrase.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
+    final knowledgeQuery = RegExp(
+      r'^(?:search (?:the )?knowledge(?: base)? for|find information about|what do you know about) (.+)$',
+    ).firstMatch(command);
+    if (knowledgeQuery != null) {
+      await _knowledgeReady;
+      final matches = LocalKnowledge.search(
+        knowledgeQuery.group(1)!,
+        LocalKnowledge.chunk('Saved Knowledge, user provided', _knowledgeText),
+      );
+      final reply = matches.isEmpty
+          ? 'I could not find that information in your saved Knowledge.'
+          : matches
+                .map((section) => '${section.citation}. ${section.text}')
+                .join(' ');
+      _chat.add(_ChatLine(true, phrase));
+      _chat.add(_ChatLine(false, reply));
+      _transcript = reply;
+      _refreshAssistantPopup();
+      await _speak(reply);
+      if (_voiceSession) await _stopVoiceAfterTask();
+      return;
+    }
     final stopCommand =
         command.contains('stop listening') ||
         command.contains('stop voice') ||
@@ -2280,6 +2293,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       r'^(stop|stop speaking|stop talking|be quiet|quiet|cancel|hold on|wait)[.! ]*$',
     ).hasMatch(command);
     if (stopCommand || stopSpeechOnly) {
+      _interaction.cancel();
       await _speech.stop();
       _stopSpeaking();
       if (stopCommand) {

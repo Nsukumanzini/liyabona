@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "classification": "blocked_by_critical_issues",
+  "criticalBlockers": [
+    "Qwen3 0.6B and managed llama.cpp inference are not integrated or packaged",
+    "SQLite migration, memory, document import and backup are not implemented",
+    "Spoken confirmation and complete voice state transitions are not integrated",
+    "Automation permission gate is not connected to native execution",
+    "Office automation and dictation integrations are not implemented",
+    "Installer, upgrade and offline end-to-end validation are incomplete"
+  ],
+  "physicalAcceptance": "pending"
+}
