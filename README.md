@@ -1,84 +1,52 @@
-> Release status: **Blocked by critical issues.** See [release readiness](docs/RELEASE_READINESS.md). The final offline assistant and installer are not complete.
-
-> Development status: Phase 2 is incomplete. External AI transport has been
-> removed from this working copy. Windows speech uses local Whisper and then
-> Windows speech recognition. Local Qwen conversation is not integrated.
-> Older cloud setup descriptions below are historical and no longer enable AI.
-> See docs/PHASE2_STATUS.md and docs/MANUAL_ACCEPTANCE.md before testing.
-
 # Liyabona Reception
 
-Liyabona is an accessible reception workspace for TVET Student Support Services. It supports Android, iOS, Windows and web, with voice navigation, spoken screen summaries, keyboard and touch controls, larger text and high contrast.
+Liyabona is an accessibility-focused reception workspace for TVET Student Support Services. It includes reception screens for appointments, enquiries, notes, documents, email drafts, learners, visitors, tasks and campus knowledge. The interface supports keyboard navigation, larger text, high contrast, screen reading and voice commands.
 
-The workspace includes a calendar, learner enquiries, notes, documents, email drafts, learner contacts, campus information, visitor records, tasks and an AI assistant. Reception records are saved locally on Windows and remain in the current session on web and mobile. Student systems and the college mailbox are not connected.
+> **Release status: Experimental.** Physical testing with the intended receptionist, microphone, NVDA/Narrator, and target college computer is still required. The production release gate remains in place.
 
-## AI service setup
+## Windows voice and local AI
 
-When a voice session is active and the computer is online, Liyabona sends a short, silence-trimmed audio clip to Google Gemini through Vercel for English (South Africa) transcription and command handling in one request. Gemini returns the transcript, action and a confidence score. The server rejects empty or low-confidence transcripts before the app can perform an action. Audio is held in memory by the app and is not saved as a recording. The Gemini API key stays on Vercel. On Windows, if the online service is unavailable or transcription takes more than eight seconds, Liyabona transcribes the captured clip locally with its bundled Whisper model. Other platforms use their supported device speech service.
+The Windows voice flow is: activate the microphone, capture speech, transcribe it locally with the bundled Whisper model (Windows speech recognition is the fallback), show the recognized words, then route the request to a supported reception action. Listening stops after each request. The floating assistant can be started with **Ctrl+Alt+Space**; **Ctrl+Alt+R** reads accessible text from the active Windows app. External app reading is local and read-only.
 
-To enable transcription and AI replies, add the Gemini API key in Google AI Studio to the Vercel project as `GEMINI_API_KEY`, then redeploy. Keep the key on Vercel; never put it in Flutter or GitHub. Google AI Studio usage is subject to its current quotas and data terms. Confirm the college's data-handling requirements before sending learner or staff information.
+Known reception actions use deterministic command handling. Qwen3 0.6B Q4_K_M runs locally through the bundled llama.cpp CPU runtime for general answers and email composition. Email commands open the Emails screen, save a draft in the current list, and write a local file at:
 
-Email drafts can be prepared and reviewed in Liyabona. Sending or receiving college email requires Student Support's mailbox provider and secure access to be approved and configured by college IT.
-
-On Windows, switch to an email, Office document or another app, activate the floating Liyabona assistant, and say **“read”**, **“read the screen”** or **“ready”**. You can also press **Ctrl+Alt+R**. Liyabona reads aloud text that the active app exposes through Windows UI Automation, in short sections. Say **“continue reading”** for the next section or **“repeat”** to hear the previous section again. Screen reading is read-only; the extracted text stays on the computer and is not added to chat or sent to Gemini. It can only read content exposed by the other app's accessibility support, and it does not sign in to mailboxes or modify external apps.
-
-The Windows app also shows a floating Liyabona assistant above other apps. Click its small idle button, or press **Ctrl+Alt+Space**, to start a voice session without restoring the full Liyabona window. During listening, processing and spoken replies, the button expands into a small status panel with an animated character and the current request. The microphone is off until activated. The voice session stops after each request; click the floating assistant again for another request. On Windows, the optional Assist wake word can be enabled in the AI assistant settings; while enabled, Windows speech recognition listens locally for “Assist” as long as Liyabona is open. Reading text from another app remains a separate, local, read-only shortcut.
-
-The Windows assistant can open Outlook, Word, Excel, PowerPoint, Edge, Notepad, Calculator and File Explorer by voice. It does not click, type, or change information in those external apps.
-
-The Windows assistant can open Outlook, Word, Excel, PowerPoint, Edge, Notepad, Calculator and File Explorer by voice. It does not click, type, or change information in those external apps.
-
-## Run locally
-
-```sh
-flutter pub get
-flutter run -d chrome
+```text
+%LOCALAPPDATA%\Liyabona\email-drafts.json
 ```
 
-Build the web application with:
+If the local model is unavailable or takes too long to compose an email, Liyabona saves a professional built-in template instead. Drafts are not sent. College mailbox connection and sending are not implemented.
 
-```sh
-flutter build web --release
-```
+Try voice or text commands such as:
 
-Vercel uses `scripts/vercel-build.sh` to install Flutter 3.50.0 and build the web application from the connected Git repository. The static site is published from `build/web`, while `api/assistant.js` runs as a Vercel function.
+- “Open the calendar.”
+- “Create a note about the registration meeting.”
+- “Add a task to prepare the welcome packs.”
+- “Generate an email to the campus manager about registration.”
+- “Show an example of an email draft.”
+- “Read the screen.”
 
-Use Android Studio or Xcode for the mobile targets. A local Windows build requires Visual Studio with the Desktop development with C++ workload.
+The assistant displays the words it recognized before carrying out the request. If it did not hear the instruction correctly, repeat it. Use the microphone button or floating assistant again for the next request.
 
-## Build Windows with GitHub Actions
+## Local data and privacy
 
-The workflow at `.github/workflows/build-windows.yml` builds a Windows release on a GitHub-hosted Windows runner and saves `Liyabona-Windows.zip` as an Actions artifact.
+Windows reception records are stored on the current Windows user’s device. Email drafts are also stored in the Liyabona Local AppData folder above. No Gemini API key or online AI service is required. External applications such as browsers and mail clients may independently require internet access. Do not store passwords or confidential learner information in general notes or prompts without college approval.
 
-1. Open the repository on GitHub and select **Actions**. Approve Actions for the repository if GitHub asks.
-2. Select **Build Windows app**, then **Run workflow**. A push to `main` also starts a build.
-3. Open the completed workflow run and download the **Liyabona-Windows** artifact.
-4. Extract the ZIP on Windows and run `liyabona.exe`. Keep the DLLs, `data` folder and `speech_models` folder beside the executable.
+## Experimental Windows build
 
-The GitHub runner supplies the Windows build tools, so Visual Studio is not needed on the development computer. The target Windows computer needs microphone access. The Windows ZIP includes the offline English speech model, so no separate Windows language pack is needed for that fallback. The runner compiles the application but cannot verify microphone operation or transcription accuracy with the receptionist's accent. The distributed executable is not code-signed; Windows security policy may require approval from the computer administrator or a trusted signature.
+The `development/offline-integration-audit` branch uses the **Experimental Windows validation** workflow. Pushes to that development branch run Flutter analysis, automated tests, local inference checks and a Windows x64 build. The uploaded artifact is named **EXPERIMENTAL-Liyabona-Windows** and includes the local AI runtime and models. It is for testing, not approved for college deployment.
 
-## Voice commands
+To download it, open the repository’s **Actions** page, select the latest successful **Experimental Windows validation** run for the development branch, and download its artifact. Extract the ZIP and run `liyabona.exe`. Keep the `data`, `ai-runtime` and `speech_models` folders beside the executable. The executable is unsigned; do not bypass Windows security policy. The recent Windows workflow disables AVX and SSE4.2 in the bundled Whisper build for compatibility with older x64 processors.
 
-Start a voice session using **Talk to Liyabona**. Liyabona stops listening after each request. Open a screen, create a note or task, draft an email, or ask a reception question; repeat the voice activation for another request. If Gemini is unavailable or takes more than eight seconds, Windows uses the bundled Whisper small English model locally. The model is not fine-tuned for South African English; test its accuracy with the receptionist's accent and microphone before relying on it. If Whisper is missing or cannot transcribe, Liyabona falls back to Windows speech recognition. If Liyabona cannot make out the words, it says “Repeat again.”
+The separate production workflow still checks the release-readiness gate. Do not publish an experimental artifact as a production release.
 
-Online voice recognition sends a short recording to Gemini, which transcribes English (South Africa) and interprets the command in one request. If the online service is unreachable, Windows transcribes that clip with the bundled Whisper model before trying Windows speech recognition. Voice-created, edited and deleted notes, tasks, appointments, email drafts, call logs, enquiries, visitor records and documents are saved in the Windows user's local app storage. The Knowledge screen lets the receptionist type or paste personal preferences and helpful work information. Saved Knowledge is sent to Gemini with an AI request; do not enter passwords or confidential learner details.
+## Build locally
 
-Examples:
+Windows compilation requires Flutter 3.50.0, CMake and Visual Studio with the Desktop development with C++ workload. The GitHub Actions Windows runner can build the app when a local Windows development machine is unavailable. Model binaries are downloaded and verified by workflow scripts; they are not committed to Git.
 
-- “Open Outlook.”
-- “Open Word.”
-- “Open calendar.”
-- “Schedule an appointment with Lerato tomorrow at 2 PM about registration.”
-- “Create a note that the registration forms are ready.”
-- “Add a task to prepare the visitor sign-in sheets.”
-- “Remind me to call the transport office tomorrow.”
-- “Show my tasks.”
-- “Complete task prepare the visitor sign-in sheets.”
-- “Draft an email to Amina about financial aid.”
-- “Read this screen.”
-- “Continue reading.”
-- “Repeat.”
-- “Edit the task called prepare visitor sheets and change the detail to print 20 copies.”
-- “Delete the note called registration forms.”
-- The app speaks “Hello, I hope you are doing well” when it opens.
+## Physical acceptance checks still required
 
-The app keeps the microphone off until a voice session is started, unless the optional Windows Assist wake word is enabled. Voice commands use Gemini online when available. On Windows, if the service is unavailable or transcription takes more than eight seconds, Liyabona first uses a local Whisper small English model bundled with the Windows ZIP. The model is English-only and is not fine-tuned specifically for South African accents; its local results should be checked with the receptionist's accent and microphone before relying on it. If Whisper is missing or cannot transcribe, Liyabona falls back to Windows speech recognition. The ZIP includes the model, so no separate first-run language-pack download is needed. Building for Windows fetches the pinned Whisper.cpp source and downloads the model through `scripts/prepare-windows-speech.ps1`.
+- Verify voice pickup and South African English transcription with the receptionist’s microphone and room conditions.
+- Try short commands and email requests with the microphone, then confirm the recognized words, draft in the Emails screen and local JSON file.
+- Test spoken responses, NVDA and Windows Narrator.
+- Check startup, memory use, and a normal workday on the college’s lowest-specification computer.
+- Confirm the college’s approval for local storage of any institutional information.
