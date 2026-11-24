@@ -1,0 +1,100 @@
+name: Experimental Windows validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["development/**"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.0"
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Cache offline speech model
+        uses: actions/cache@v4
+        with:
+          path: windows/models/ggml-small.en-q5_1.bin
+          key: liyabona-whisper-small-en-q5_1-bfdff4894dcb76bb
+
+      - name: Prepare offline speech model
+        shell: pwsh
+        run: ./scripts/prepare-windows-speech.ps1
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyse Flutter application
+        run: flutter analyze
+
+      - name: Test Flutter application
+        run: flutter test
+
+      - name: Check deterministic components
+        shell: pwsh
+        run: |
+          dart tool/check_voice_interaction.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart tool/check_knowledge.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart tool/check_permissions.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare local Qwen inference
+        shell: pwsh
+        run: ./scripts/prepare-local-ai.ps1
+
+      - name: Build release app
+        run: flutter build windows --release
+
+      - name: Verify speech recognizer is linked into the app
+        shell: pwsh
+        run: |
+          $release = "build/windows/x64/runner/Release"
+          if (Test-Path "$release/speech_to_text_windows_plugin.dll") {
+            throw "The separate speech recognition DLL was built. Check the local dependency override."
+          }
+          if (Test-Path "$release/flutter_tts_plugin.dll") {
+            throw "The separate text-to-speech DLL was built. Check the local dependency override."
+          }
+          if (Test-Path "$release/record_windows_plugin.dll") {
+            throw "The separate audio recorder DLL was built. Check the static Windows recorder override."
+          }
+          if (Test-Path "$release/whisper.dll") {
+            throw "Whisper was built as a separate DLL instead of being linked into the app."
+          }
+          if (-not (Test-Path "$release/liyabona.exe")) {
+            throw "The Windows executable was not produced."
+          }
+          if (-not (Test-Path "$release/speech_models/ggml-small.en-q5_1.bin")) {
+            throw "The offline speech model is missing from the Windows build."
+          }
+
+      - name: Package local engine and validate actual inference
+        shell: pwsh
+        run: |
+          Copy-Item windows/ai-runtime build/windows/x64/runner/Release/ai-runtime -Recurse
+          dart tool/check_real_inference.dart build/windows/x64/runner/Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package Windows build
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath Liyabona-Windows.zip -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EXPERIMENTAL-Liyabona-Windows
+          path: Liyabona-Windows.zip
+          if-no-files-found: error
