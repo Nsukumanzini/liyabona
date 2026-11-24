@@ -61,7 +61,7 @@ class LocalEngine {
         '0',
         '--no-display-prompt',
         '--simple-io',
-          '--no-conversation',
+        '--no-conversation',
         '-p',
         '<|im_start|>system\nYou assist a blind receptionist at Gert Sibande TVET College, Ermelo Campus. Be concise. Never claim actions or invent records. /no_think<|im_end|>\n<|im_start|>user\n$prompt /no_think<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n',
       ], runInShell: false);
@@ -101,3 +101,8 @@ class LocalEngine {
 
   void dispose() => cancel();
 }
+
+String cleanLocalReply(String text) => text
+    .replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '')
+    .replaceAll(RegExp(r'\[end of text\]|<\|[^>]+\|>'), '')
+    .trim();
