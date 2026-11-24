@@ -6,6 +6,7 @@ import 'local_ai/engine.dart';
 import 'dart:io' show Platform, File;
 
 import 'knowledge/retrieval.dart';
+import 'assistant/command_matching.dart';
 
 import 'dart:convert';
 import 'dart:math' show sqrt;
@@ -2553,6 +2554,13 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         command.contains('summarize this screen') ||
         command == 'read screen') {
       response = _pageSummary();
+    } else if (isEmailDraftRequest(
+      command,
+      createIntent: _hasCreateIntent(command),
+    )) {
+      // Handle task requests before navigation. “Show an example email draft”
+      // should create an email example, not be mistaken for “open AI”.
+      response = _createEmailDraft(command);
     } else if (_isNavigationRequest(command)) {
       final match = _interpretDestination(command);
       if (match.choices.length > 1) {
@@ -2849,35 +2857,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _go('Documents');
       response =
           'I created a draft called $title. Open Documents to review and print it.';
-    } else if (command.contains('email') && _hasCreateIntent(command)) {
-      final rawRecipient = _after(command, [
-        'email to ',
-        'message to ',
-        ' to ',
-      ]);
-      final recipient = rawRecipient
-          .split(RegExp(r'\b(about|regarding|with subject)\b'))
-          .first
-          .trim();
-      final topic = _after(command, ['about ', 'regarding ', 'with subject ']);
-      final subject = topic.isEmpty
-          ? 'Student Support follow-up'
-          : _titleCase(topic);
-      final salutation = recipient.isEmpty ? 'there' : _titleCase(recipient);
-      final body =
-          'Dear $salutation,\n\nI am writing regarding ${topic.isEmpty ? 'your recent enquiry' : topic}. Please let me know if you need any further assistance.\n\nKind regards,\nStudent Support Reception';
-      _emails.insert(
-        0,
-        _EmailDraft(
-          recipient.isEmpty ? 'Recipient to be confirmed' : recipient,
-          subject,
-          body,
-          DateTime.now(),
-        ),
-      );
-      _go('Emails');
-      response =
-          'I drafted an email to ${recipient.isEmpty ? 'review' : recipient} with the subject $subject. It has not been sent.';
     } else if (command.contains('email') || command.contains('draft')) {
       _go('Emails');
       response = _summaryFor('Emails');
@@ -2953,6 +2932,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           answer?.reply ??
           'I could not understand that request. Please repeat it.';
     }
+    // Deterministic voice actions update the same local store as the forms.
+    // Without this save, spoken drafts and reception records disappeared on
+    // restart even though Liyabona said they had been created.
+    await _persistWindowsData();
     if (mounted)
       setState(() {
         _transcript = '“$phrase”\n$response';
@@ -3055,7 +3038,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     };
     for (final entry in aliases.entries) {
       if (entry.value.any(
-        (alias) => request == alias || request.contains(alias),
+        (alias) => request == alias || containsCommandPhrase(request, alias),
       )) {
         return _DestinationMatch([
           entry.key,
@@ -3123,6 +3106,51 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     'compose ',
     'remind ',
   ].any(command.startsWith);
+
+  String _createEmailDraft(String command) {
+    final isExample =
+        containsCommandPhrase(command, 'example') ||
+        containsCommandPhrase(command, 'sample');
+    final rawRecipient = _after(command, [
+      'email to ',
+      'e-mail to ',
+      'message to ',
+      ' to ',
+    ]);
+    final recipient = rawRecipient
+        .split(RegExp(r'\b(about|regarding|with subject|subject|for)\b'))
+        .first
+        .trim();
+    final topic = _after(command, [
+      'about ',
+      'regarding ',
+      'with subject ',
+      'subject ',
+      'for ',
+    ]);
+    final subject = topic.isNotEmpty
+        ? _titleCase(topic)
+        : isExample
+        ? 'Sample Student Support Email'
+        : 'Student Support follow-up';
+    final salutation = recipient.isEmpty
+        ? '[Recipient name]'
+        : _titleCase(recipient);
+    final body =
+        'Dear $salutation,\n\nI am writing to follow up regarding ${topic.isEmpty ? 'your recent enquiry' : topic}. Please let me know if you need any further information or assistance.\n\nKind regards,\nStudent Support Reception';
+    _emails.insert(
+      0,
+      _EmailDraft(
+        recipient.isEmpty ? 'Recipient to be confirmed' : recipient,
+        subject,
+        body,
+        DateTime.now(),
+      ),
+    );
+    _go('Emails');
+    return 'I saved an email draft${recipient.isEmpty ? '' : ' to ${_titleCase(recipient)}'} with the subject $subject. It has not been sent.';
+  }
+
   String _after(String text, List<String> prefixes) {
     for (final prefix in prefixes) {
       final i = text.indexOf(prefix);

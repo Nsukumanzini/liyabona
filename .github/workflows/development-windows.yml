@@ -48,6 +48,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dart tool/check_knowledge.dart
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart tool/check_command_matching.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dart tool/check_permissions.dart
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
