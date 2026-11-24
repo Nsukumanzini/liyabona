@@ -17,6 +17,6 @@ DownloadVerified 'https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/23749fefcc
 $quantizer = (Get-ChildItem $destination -Filter llama-quantize.exe -Recurse | Select-Object -First 1).FullName
 if (-not $quantizer) { throw 'Quantizer missing' }
 $model = Join-Path $destination 'Qwen3-0.6B-Q4_K_M.gguf'
-& $quantizer $source $model Q4_K_M
+& $quantizer --allow-requantize $source $model Q4_K_M
 if ($LASTEXITCODE -ne 0) { throw 'Quantisation failed' }
 (Get-FileHash $model -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content "$model.sha256"
