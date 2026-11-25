@@ -46,6 +46,7 @@ class LocalEngine {
     final generation = ++_generation;
     Timer? timer;
     StreamSubscription<String>? errors;
+    final stderrText = StringBuffer();
     try {
       await validate();
       final process = await Process.start(runtime, [
@@ -71,7 +72,7 @@ class LocalEngine {
         process.kill();
         return;
       }
-      errors = process.stderr.transform(utf8.decoder).listen((_) {});
+      errors = process.stderr.transform(utf8.decoder).listen(stderrText.write);
       var timedOut = false;
       timer = Timer(timeout, () {
         timedOut = true;
@@ -83,8 +84,14 @@ class LocalEngine {
       }
       final code = await process.exitCode;
       if (timedOut) throw TimeoutException('Local AI took too long.');
-      if (generation == _generation && code != 0)
-        throw StateError('Local AI process failed.');
+      if (generation == _generation && code != 0) {
+        final diagnostic = stderrText.toString().trim();
+        throw StateError(
+          diagnostic.isEmpty
+              ? 'Local AI process failed with exit code $code.'
+              : 'Local AI process failed with exit code $code: $diagnostic',
+        );
+      }
     } finally {
       timer?.cancel();
       _process?.kill();
