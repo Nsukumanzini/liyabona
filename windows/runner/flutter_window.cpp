@@ -545,22 +545,34 @@ bool FlutterWindow::OnCreate() {
               call.arguments() == nullptr
                   ? nullptr
                   : std::get_if<std::string>(call.arguments());
-          const wchar_t* executable = nullptr;
+          const wchar_t* target = nullptr;
           if (app_id != nullptr) {
-            if (*app_id == "outlook") executable = L"outlook.exe";
-            if (*app_id == "word") executable = L"winword.exe";
-            if (*app_id == "excel") executable = L"excel.exe";
-            if (*app_id == "powerpoint") executable = L"powerpnt.exe";
-            if (*app_id == "edge") executable = L"msedge.exe";
-            if (*app_id == "notepad") executable = L"notepad.exe";
-            if (*app_id == "calculator") executable = L"calc.exe";
-            if (*app_id == "file_explorer") executable = L"explorer.exe";
+            if (*app_id == "outlook") target = L"outlook.exe";
+            if (*app_id == "word") target = L"winword.exe";
+            if (*app_id == "excel") target = L"excel.exe";
+            if (*app_id == "powerpoint") target = L"powerpnt.exe";
+            if (*app_id == "teams") target = L"ms-teams:";
+            if (*app_id == "onenote") target = L"onenote:";
+            if (*app_id == "edge") target = L"msedge.exe";
+            if (*app_id == "chrome") target = L"chrome.exe";
+            if (*app_id == "zoom") target = L"Zoom.exe";
+            if (*app_id == "notepad") target = L"notepad.exe";
+            if (*app_id == "calculator") target = L"calc.exe";
+            if (*app_id == "file_explorer") target = L"explorer.exe";
+            if (*app_id == "pdf_reader") target = L"AcroRd32.exe";
+            if (*app_id == "photos") target = L"ms-photos:";
           }
-          const HINSTANCE launch_result =
-              executable == nullptr
+          HINSTANCE launch_result =
+              target == nullptr
                   ? nullptr
-                  : ShellExecuteW(GetHandle(), L"open", executable, nullptr,
+                  : ShellExecuteW(GetHandle(), L"open", target, nullptr,
                                   nullptr, SW_SHOWNORMAL);
+          // Acrobat Reader has used both executable names across releases.
+          if (app_id != nullptr && *app_id == "pdf_reader" &&
+              reinterpret_cast<INT_PTR>(launch_result) <= 32) {
+            launch_result = ShellExecuteW(GetHandle(), L"open", L"Acrobat.exe",
+                                          nullptr, nullptr, SW_SHOWNORMAL);
+          }
           result->Success(flutter::EncodableValue(
               reinterpret_cast<INT_PTR>(launch_result) > 32));
         } else if (call.method_name() == "setFloatingState") {

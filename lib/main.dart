@@ -7,6 +7,7 @@ import 'dart:io' show Platform, File;
 
 import 'knowledge/retrieval.dart';
 import 'assistant/command_matching.dart';
+import 'assistant/windows_app_catalog.dart';
 import 'data/local_email_draft_store.dart';
 
 import 'dart:convert';
@@ -388,39 +389,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   ).hasMatch(command.trim().toLowerCase());
 
   String? _approvedWindowsAppId(String command) {
-    final app = command
-        .toLowerCase()
-        .trim()
-        .replaceFirst(
-          RegExp(r'^(please\s+)?(open|launch|start)\s+(the\s+)?'),
-          '',
-        )
-        .replaceAll(RegExp(r'[.!?]+$'), '')
-        .trim();
-    return switch (app) {
-      'outlook' || 'microsoft outlook' => 'outlook',
-      'word' || 'microsoft word' => 'word',
-      'excel' || 'microsoft excel' => 'excel',
-      'powerpoint' || 'power point' || 'microsoft powerpoint' => 'powerpoint',
-      'edge' || 'microsoft edge' || 'browser' || 'web browser' => 'edge',
-      'notepad' => 'notepad',
-      'calculator' => 'calculator',
-      'file explorer' || 'explorer' => 'file_explorer',
-      _ => null,
-    };
+    return approvedWindowsAppId(command);
   }
 
-  String _windowsAppName(String appId) => switch (appId) {
-    'outlook' => 'Outlook',
-    'word' => 'Word',
-    'excel' => 'Excel',
-    'powerpoint' => 'PowerPoint',
-    'edge' => 'Microsoft Edge',
-    'notepad' => 'Notepad',
-    'calculator' => 'Calculator',
-    'file_explorer' => 'File Explorer',
-    _ => 'that app',
-  };
+  String _windowsAppName(String appId) => windowsAppName(appId);
 
   Future<void> _openApprovedWindowsApp(String appId) async {
     await _speech.stop();
@@ -2753,7 +2725,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       response = 'Voice session ended.';
     } else if (command.contains('help') ||
         command.contains('what can you do')) {
-      response = 'You can ask me to open a Liyabona screen or open Outlook, Word, Excel, PowerPoint, Edge, Notepad, Calculator or File Explorer. I can read text from the active app, draft emails and notes, and help manage reception records. Say continue reading for the next section or repeat to hear the last section again. I stop listening after each request.';
+      response = 'You can ask me to open a Liyabona screen or open Outlook, Word, Excel, PowerPoint, Teams, OneNote, Edge, Chrome, Zoom, Adobe Acrobat Reader, Photos, Notepad, Calculator or File Explorer. I can read accessible text from the active app, draft emails and notes, and help manage reception records. Say continue reading for the next section or repeat to hear the last section again. I stop listening after each request.';
     } else if (command.contains('read this screen') ||
         command.contains('summarise this screen') ||
         command.contains('summarize this screen') ||

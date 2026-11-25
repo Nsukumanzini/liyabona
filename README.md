@@ -16,6 +16,13 @@ Known reception actions use deterministic command handling. Qwen3 0.6B Q4_K_M ru
 
 If the local model is unavailable or takes too long to compose an email, Liyabona saves a professional built-in template instead. Drafts are not sent. College mailbox connection and sending are not implemented.
 
+On Windows, the approved app launcher also supports Microsoft Teams, OneNote,
+Google Chrome, Zoom Workplace, Adobe Acrobat Reader and Microsoft Photos, in addition to the
+Office apps and Windows utilities. Availability depends on the app being
+installed and its Windows app registration being intact. Unknown app names are
+not passed to Windows as process commands. Reading another app remains
+read-only.
+
 Try voice or text commands such as:
 
 - “Open the calendar.”
@@ -24,6 +31,10 @@ Try voice or text commands such as:
 - “Generate an email to the campus manager about registration.”
 - “Show an example of an email draft.”
 - “Read the screen.”
+- “Open Microsoft Teams.”
+- “Open OneNote.”
+- “Open Adobe Acrobat Reader.”
+- “Open Zoom.”
 
 The assistant displays the words it recognized before carrying out the request. If it did not hear the instruction correctly, repeat it. Use the microphone button or floating assistant again for the next request.
 
