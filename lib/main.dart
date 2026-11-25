@@ -1957,7 +1957,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
                 _speechReady = false;
                 _windowsEmptyRecognitionCount = 0;
                 _assistantError =
-                    'Windows speech recognition did not return words. Trying the bundled offline recognizer.';
+                    'Whisper is unavailable. Trying Windows speech recognition as a backup.';
                 _listenFailures = 0;
               } else {
                 _transcript = 'I did not hear speech. Listening again.';
@@ -2228,7 +2228,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     setState(() {
       _listening = false;
       _processing = true;
-      _transcript = 'Using offline speech recognition…';
+      _transcript = 'Transcribing locally with Whisper…';
       _assistantError = 'Liyabona is transcribing on this computer.';
     });
     _refreshAssistantPopup();
@@ -2261,7 +2261,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         await _speak('Repeat again.');
         _scheduleListenRestart();
         // Empty or low-confidence recognition is a completed outcome. Do not
-        // pass the same noise to Windows speech recognition as a fallback.
+        // pass the same noisy clip to Windows speech recognition as a fallback.
         return response?['available'] == true;
       }
       _updateLiveTranscript(recognized, finalResult: true);
@@ -6813,7 +6813,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Windows: click the Liyabona assistant button or press Control + Alt + Space to start a voice session without restoring the full app window. The smaller floating panel shows when Liyabona is listening, processing or speaking. While you speak, Windows offline speech recognition writes the words into this Copilot chat; Liyabona sends the completed transcript to its local AI and reception command handler. If Windows speech recognition is unavailable, Liyabona falls back to bundled Whisper. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. If Liyabona cannot make out the words, it says “Repeat again.” To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
+              'Windows: click the Liyabona assistant button or press Control + Alt + Space to start a voice session without restoring the full app window. The smaller floating panel shows when Liyabona is listening, transcribing or speaking. Liyabona captures one short audio clip locally, waits for you to pause, transcribes it with bundled Whisper and displays the words in Copilot before interpreting them. Windows speech recognition is only a backup when Whisper is unavailable; partial guesses are never sent as commands. Silence and unclear transcripts do not run actions. The microphone stays off until activated unless you turn on the optional Assist wake word. To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
               style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],

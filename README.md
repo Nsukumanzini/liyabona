@@ -6,7 +6,7 @@ Liyabona is an accessibility-focused reception workspace for TVET Student Suppor
 
 ## Windows voice and local AI
 
-The Windows voice flow is: activate the microphone, see the locally recognized words appear in the Copilot chat as you speak, then submit the completed transcript to Liyabona’s local AI and validated reception command handler. Windows offline speech recognition is preferred for live transcription; bundled Whisper is the fallback if Windows speech recognition is unavailable. Listening stops after each request. The compact floating assistant can be started with **Ctrl+Alt+Space**; **Ctrl+Alt+R** reads accessible text from the active Windows app. External app reading is local and read-only.
+On Windows, activate the microphone and say one request. Liyabona records locally until you pause, transcribes that clip with bundled Whisper, shows the finished words in Copilot, then interprets the transcript. It ignores partial Windows speech guesses; Windows speech recognition is only a fallback when Whisper is unavailable. Silence and low-confidence transcripts do not run commands. The compact floating assistant can be started with **Ctrl+Alt+Space**; **Ctrl+Alt+R** reads accessible text from the active Windows app. External app reading is local and read-only.
 
 Known reception actions use deterministic command handling. Qwen3 0.6B Q4_K_M runs locally through the bundled llama.cpp CPU runtime for general answers and email composition. Email commands open the Emails screen, save a draft in the current list, and write a local file at:
 
