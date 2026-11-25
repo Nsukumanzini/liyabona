@@ -78,6 +78,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   bool _ttsSpeaking = false;
   bool _greetingPlaying = false;
   int _listenFailures = 0;
+  int? _liveTranscriptChatIndex;
+  String _windowsLivePhrase = '';
+  int _windowsEmptyRecognitionCount = 0;
   Timer? _listenRestartTimer;
   Timer? _wakeWordRestartTimer;
   bool _wakeWordEnabled = false;
@@ -440,8 +443,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     final response = opened
         ? 'Opening $name. Activate Liyabona again when you want me to read its screen.'
         : 'I could not open $name. It may not be installed on this computer.';
-    _transcript = response;
-    if (mounted) setState(() => _listening = false);
+    if (mounted) {
+      setState(() {
+        _transcript = response;
+        _listening = false;
+        _addUserChatLine(_heardPhrase);
+        _chat.add(_ChatLine(false, response));
+      });
+    }
     _refreshAssistantPopup();
     await _speak(response);
     _processing = false;
@@ -1123,6 +1132,45 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
   }
 
+  void _updateLiveTranscript(String text, {bool finalResult = false}) {
+    final phrase = text.trim();
+    if (phrase.isEmpty) return;
+    setState(() {
+      _transcript = 'I heard: $phrase';
+      _heardPhrase = phrase;
+      _interpretation = finalResult
+          ? 'Transcript complete; sending your words to Liyabona AI'
+          : 'Writing your words as you speak';
+      final index = _liveTranscriptChatIndex;
+      if (index != null && index < _chat.length) {
+        _chat[index] = _ChatLine(true, phrase);
+      } else if (_chat.isNotEmpty &&
+          _chat.last.user &&
+          _chat.last.text == phrase) {
+        _liveTranscriptChatIndex = _chat.length - 1;
+      } else {
+        _liveTranscriptChatIndex = _chat.length;
+        _chat.add(_ChatLine(true, phrase));
+      }
+      if (finalResult) _liveTranscriptChatIndex = null;
+    });
+    _refreshAssistantPopup();
+  }
+
+  void _clearLiveTranscript() {
+    final index = _liveTranscriptChatIndex;
+    if (index != null && index < _chat.length) {
+      setState(() => _chat.removeAt(index));
+    }
+    _liveTranscriptChatIndex = null;
+    _windowsLivePhrase = '';
+  }
+
+  void _addUserChatLine(String text) {
+    if (_chat.isNotEmpty && _chat.last.user && _chat.last.text == text) return;
+    _chat.add(_ChatLine(true, text));
+  }
+
   List<Map<String, String>> get _assistantRecords => [
     ..._appointments.map(
       (v) => {
@@ -1205,7 +1253,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   Future<_AssistantResult?> _askModel(
     String text, {
     String? audioBase64,
-    Duration timeout = const Duration(seconds: 90),
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     if (!_isWindowsDesktop || text.trim().isEmpty) return null;
     try {
@@ -1832,6 +1880,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _audioSubscription = null;
       await _speech.stop();
       _stopSpeaking();
+      _clearLiveTranscript();
       if (mounted)
         setState(() {
           _listening = false;
@@ -1844,6 +1893,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _forceOfflineSpeech = false;
     _awaitingSessionChoice = false;
     _listenFailures = 0;
+    _windowsEmptyRecognitionCount = 0;
     if (_isWindowsDesktop) {
       try {
         await _offlineDataReady.timeout(const Duration(seconds: 2));
@@ -1874,6 +1924,19 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         }
         _listenFailures++;
         final stoppedAfterRetries = _listenFailures >= 3;
+        if (_isWindowsDesktop && !permissionDenied && stoppedAfterRetries) {
+          _speechReady = false;
+          _listenFailures = 0;
+          setState(() {
+            _listening = false;
+            _assistantError =
+                'Windows live speech recognition is unavailable. Trying bundled offline Whisper.';
+            _transcript = 'Switching to the bundled offline recognizer.';
+          });
+          _refreshAssistantPopup();
+          _scheduleListenRestart();
+          return;
+        }
         setState(() {
           _listening = false;
           if (permissionDenied || stoppedAfterRetries) _voiceSession = false;
@@ -1896,10 +1959,36 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         if (status == 'listening') {
           _listenFailures = 0;
           _listenRestartTimer?.cancel();
-          setState(() => _listening = true);
+          setState(() {
+            _listening = true;
+            if (_windowsLivePhrase.isEmpty) {
+              _transcript = 'Listening. Your words will appear here.';
+            }
+          });
           _refreshAssistantPopup();
         } else if (status == 'done' || status == 'notListening') {
+          final wasListening = _listening;
           setState(() => _listening = false);
+          if (_isWindowsDesktop && wasListening && !_processing) {
+            final partial = _windowsLivePhrase.trim();
+            if (partial.isNotEmpty) {
+              // Some Windows speech services return a useful partial result
+              // but omit the final-result event. Submit that visible text.
+              _submitLiveVoiceTranscript(partial);
+            } else if (status == 'done') {
+              _windowsEmptyRecognitionCount++;
+              _clearLiveTranscript();
+              if (_windowsEmptyRecognitionCount >= 3) {
+                _speechReady = false;
+                _windowsEmptyRecognitionCount = 0;
+                _assistantError =
+                    'Windows speech recognition did not return words. Trying the bundled offline recognizer.';
+                _listenFailures = 0;
+              } else {
+                _transcript = 'I did not hear speech. Listening again.';
+              }
+            }
+          }
           _refreshAssistantPopup();
           _scheduleListenRestart();
         }
@@ -1933,7 +2022,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               ? 'Windows default English'
               : localeById[selectedLocale]!.name;
           _assistantError =
-              'Online transcription uses South African English. Whisper uses English; the Windows backup uses $selectedName.';
+              'Windows live speech recognition is using $selectedName. Whisper is the local fallback.';
         }
       } catch (_) {
         _speechLocale = null;
@@ -1962,6 +2051,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (!_voiceSession || !mounted || _processing || _listening) return;
     _interaction.begin();
     _interaction.move(VoicePhase.listening);
+    // Windows speech-to-text can produce partial words while the receptionist
+    // is speaking. Prefer that live, local path so each request is visible in
+    // Copilot before it is interpreted. Whisper remains the fallback when the
+    // Windows recognizer is unavailable.
+    if (_isWindowsDesktop && _speechReady) {
+      await _listenOfflineOnce();
+      return;
+    }
     if (_forceOfflineSpeech && !_isWindowsDesktop) {
       await _listenOfflineOnce();
       return;
@@ -2186,14 +2283,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _refreshAssistantPopup();
         return false;
       }
-      _transcript = 'I heard: $recognized';
+      _updateLiveTranscript(recognized, finalResult: true);
       _assistantError = 'Transcribed locally on this computer.';
-      setState(() {
-        _heardPhrase = recognized;
-        _interpretation = 'Transcription complete; carrying out your request';
-      });
       _refreshAssistantPopup();
-      await _handleVoiceCommand(recognized, consultAi: false);
+      await _handleVoiceCommand(recognized, consultAi: true);
       return true;
     } catch (_) {
       _processing = false;
@@ -2206,7 +2299,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (!_voiceSession || !mounted || _processing || _listening) return;
     _interaction.move(VoicePhase.listening);
     _listenRestartTimer?.cancel();
-    setState(() => _listening = true);
+    _windowsLivePhrase = '';
+    setState(() {
+      _listening = true;
+      _transcript = 'Listening. Your words will appear here.';
+    });
     _refreshAssistantPopup();
     try {
       await _speech.listen(
@@ -2214,7 +2311,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           localeId: _speechLocale,
           listenFor: const Duration(minutes: 2),
           pauseFor: const Duration(seconds: 3),
-          partialResults: !_isWindowsDesktop,
+          partialResults: true,
           cancelOnError: false,
           onDevice: _isWindowsDesktop || _preferOnDeviceSpeech,
         ),
@@ -2229,29 +2326,34 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           } else if (_ttsSpeaking && _soundsLikeCurrentSpeech(heard)) {
             return;
           }
-          setState(() {
-            _transcript = 'I heard: $heard';
-            _heardPhrase = heard;
-            _interpretation =
-                'Transcription complete; carrying out your request';
-          });
+          _windowsEmptyRecognitionCount = 0;
+          _windowsLivePhrase = heard;
+          _updateLiveTranscript(heard, finalResult: result.finalResult);
           if (result.finalResult && !_processing) {
-            _processing = true;
-            if (_ttsSpeaking) _stopSpeaking();
-            _refreshAssistantPopup();
-            unawaited(
-              _handleVoiceCommand(heard, consultAi: !_forceOfflineSpeech),
-            );
+            _submitLiveVoiceTranscript(heard);
           }
         },
       );
     } catch (_) {
       if (!mounted) return;
+      _listenFailures++;
+      if (_isWindowsDesktop && _listenFailures >= 3) {
+        _speechReady = false;
+        _listenFailures = 0;
+        setState(() {
+          _listening = false;
+          _assistantError =
+              'Windows live speech recognition could not start. Trying bundled offline Whisper.';
+          _transcript = 'Switching to the bundled offline recognizer.';
+        });
+        _refreshAssistantPopup();
+        _scheduleListenRestart();
+        return;
+      }
       setState(() {
         _listening = false;
         _transcript =
             'Could not start speech recognition. Check microphone access.';
-        _listenFailures++;
         if (_listenFailures >= 3) {
           _voiceSession = false;
           _assistantError = _transcript;
@@ -2263,6 +2365,20 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _refreshAssistantPopup();
       if (_voiceSession) _scheduleListenRestart();
     }
+  }
+
+  void _submitLiveVoiceTranscript(String phrase) {
+    final heard = phrase.trim();
+    if (heard.isEmpty || _processing || !_voiceSession) return;
+    _windowsLivePhrase = heard;
+    _updateLiveTranscript(heard, finalResult: true);
+    _processing = true;
+    if (_ttsSpeaking) _stopSpeaking();
+    _refreshAssistantPopup();
+    // Submit the recognized words as a normal Copilot request. The local
+    // interpreter can answer or propose an action; deterministic reception
+    // routing still validates and performs supported tasks.
+    unawaited(_handleVoiceCommand(heard, consultAi: true));
   }
 
   void _scheduleListenRestart() {
@@ -2334,7 +2450,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           : matches
                 .map((section) => '${section.citation}. ${section.text}')
                 .join(' ');
-      _chat.add(_ChatLine(true, phrase));
+      _addUserChatLine(phrase);
       _chat.add(_ChatLine(false, reply));
       _transcript = reply;
       _refreshAssistantPopup();
@@ -2375,7 +2491,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (_isWindowsDesktop && _isWindowsScreenReadCommand(command)) {
       _heardPhrase = phrase;
       _interpretation = 'Reading text from the active app';
-      _chat.add(_ChatLine(true, phrase));
+      _addUserChatLine(phrase);
       await _readActiveWindowsScreen();
       return;
     }
@@ -2404,21 +2520,21 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _heardPhrase = phrase;
     _interpretation = 'Checking your request with Liyabona AI';
     _matchConfidence = null;
-    if (consultAi) {
+    if (consultAi && _shouldAskModelBeforeRouting(command)) {
       await _speech.stop();
       _listening = false;
       final result = assistantResultOverride ?? await _askModel(phrase);
       if (_isWindowsDesktop && result?.action == 'read_screen') {
         _heardPhrase = phrase;
         _interpretation = 'Reading text from the active app';
-        _chat.add(_ChatLine(true, phrase));
+        _addUserChatLine(phrase);
         await _readActiveWindowsScreen();
         return;
       }
       if (result != null &&
           _requiresAssistantConfirmation(result.action, command)) {
         final confirmation = _confirmationPrompt(phrase, result);
-        _chat.add(_ChatLine(true, phrase));
+        _addUserChatLine(phrase);
         _chat.add(_ChatLine(false, confirmation));
         if (mounted) {
           setState(() {
@@ -2457,7 +2573,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         final actionReply = result.action == 'navigate'
             ? 'Opening ${result.destination}.'
             : result.reply;
-        _chat.add(_ChatLine(true, phrase));
+        _addUserChatLine(phrase);
         _chat.add(_ChatLine(false, actionReply));
         _pendingChoices = [];
         _interpretation = result.action == 'navigate'
@@ -2482,7 +2598,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         return;
       }
       if (result != null && result.action == 'clarify') {
-        _chat.add(_ChatLine(true, phrase));
+        _addUserChatLine(phrase);
         _chat.add(_ChatLine(false, result!.reply));
         _interpretation = 'Liyabona needs one more detail';
         if (mounted) {
@@ -2505,7 +2621,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         // falling back to the AI's spoken answer or clarification.
         if (_requiresLocalConfirmation(command)) {
           const confirmation = 'This request will read or change information.';
-          _chat.add(_ChatLine(true, phrase));
+          _addUserChatLine(phrase);
           _chat.add(_ChatLine(false, confirmation));
           if (mounted) setState(() => _transcript = '“$phrase”\n$confirmation');
           _refreshAssistantPopup();
@@ -2550,7 +2666,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             localReply.isNotEmpty &&
             !localReply.startsWith('I heard $phrase. Say help');
         final answer = localHandled ? localReply : result.reply;
-        _chat.add(_ChatLine(true, phrase));
+        _addUserChatLine(phrase);
         _chat.add(_ChatLine(false, answer));
         _interpretation = localHandled
             ? 'Completed using the built-in command helper'
@@ -2573,7 +2689,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
     if (!skipLocalConfirmation && _requiresLocalConfirmation(command)) {
       const confirmation = 'This request will read or change information.';
-      _chat.add(_ChatLine(true, phrase));
+      _addUserChatLine(phrase);
       _chat.add(_ChatLine(false, confirmation));
       if (mounted) setState(() => _transcript = '“$phrase”\n$confirmation');
       _refreshAssistantPopup();
@@ -3027,7 +3143,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _listening = false;
       });
     if ((consultAi || _isWindowsDesktop) && !stopCommand) {
-      _chat.add(_ChatLine(true, phrase));
+      _addUserChatLine(phrase);
       _chat.add(_ChatLine(false, response));
     }
     _refreshAssistantPopup();
@@ -3040,6 +3156,34 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (resumeVoice && _voiceSession && mounted) {
       await _stopVoiceAfterTask();
     }
+  }
+
+  bool _shouldAskModelBeforeRouting(String command) {
+    if (_isNavigationRequest(command) ||
+        _approvedWindowsAppId(command) != null ||
+        _isWindowsScreenReadCommand(command) ||
+        _isContinueScreenReadCommand(command) ||
+        _isRepeatScreenReadCommand(command) ||
+        command.contains('what can you do') ||
+        command == 'help') {
+      return false;
+    }
+    if (isEmailDraftRequest(
+      command,
+      createIntent: _hasCreateIntent(command),
+    )) {
+      // Email drafting calls the local model once with an email-specific prompt
+      // after the deterministic router has extracted the request details.
+      return false;
+    }
+    if (RegExp(
+      r'\b(task|reminder|appointment|calendar|visitor|call|note|document|email|learner|enquiry)\b',
+    ).hasMatch(command)) {
+      // Known reception workflows have deterministic handlers below. They
+      // should not wait for a general chat response before executing.
+      return false;
+    }
+    return true;
   }
 
   bool _requiresAssistantConfirmation(String action, String command) => false;
@@ -6660,7 +6804,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Windows: click the Liyabona assistant button or press Control + Alt + Space to start a voice session without restoring the full app window. The button expands into a status panel while Liyabona listens, works, or speaks. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. For speech recognition, Liyabona transcribes locally with its bundled Whisper model; Windows speech recognition is the backup if the model is unavailable. If Liyabona cannot make out the words, it says “Repeat again.” To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
+              'Windows: click the Liyabona assistant button or press Control + Alt + Space to start a voice session without restoring the full app window. The smaller floating panel shows when Liyabona is listening, processing or speaking. While you speak, Windows offline speech recognition writes the words into this Copilot chat; Liyabona sends the completed transcript to its local AI and reception command handler. If Windows speech recognition is unavailable, Liyabona falls back to bundled Whisper. Listening stops after each request. The microphone stays off until activated unless you turn on the optional Assist wake word. If Liyabona cannot make out the words, it says “Repeat again.” To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
               style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],
@@ -6874,18 +7018,18 @@ class _AssistantPopup extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           borderRadius: BorderRadius.circular(24),
           child: SizedBox(
-            width: 276,
+            width: 224,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+              padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
               child: Row(
                 children: [
                   _AnimatedAssistantCharacter(
                     active: active,
                     speaking: speaking,
                     listening: listening,
-                    size: 64,
+                    size: 46,
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -6894,25 +7038,25 @@ class _AssistantPopup extends StatelessWidget {
                         const Text(
                           'Liyabona AI',
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 12,
                             fontWeight: FontWeight.w900,
                             color: ink,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           status,
                           style: const TextStyle(
-                            fontSize: 11,
+                            fontSize: 10,
                             fontWeight: FontWeight.w700,
                             color: forest,
                           ),
                         ),
                         if (error.isNotEmpty) ...[
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           Text(
                             error,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 10, color: amber),
                           ),
@@ -6924,15 +7068,26 @@ class _AssistantPopup extends StatelessWidget {
                     IconButton(
                       tooltip: 'Stop the spoken answer',
                       onPressed: onStopSpeaking,
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 34,
+                        height: 34,
+                      ),
                       icon: const Icon(
                         Icons.stop_circle_outlined,
                         color: forest,
+                        size: 19,
                       ),
                     ),
                   IconButton(
                     tooltip: 'Stop Liyabona AI and close',
                     onPressed: onClose,
-                    icon: const Icon(Icons.close_rounded),
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 30,
+                        height: 30,
+                      ),
+                      icon: const Icon(Icons.close_rounded, size: 18),
                   ),
                 ],
               ),

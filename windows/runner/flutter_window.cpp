@@ -27,8 +27,8 @@ constexpr UINT kOfflineTranscriptionReady = WM_APP + 41;
 constexpr UINT_PTR kFloatingAnimationTimer = 920;
 constexpr wchar_t kFloatingButtonClass[] = L"LiyabonaFloatingVoiceButton";
 constexpr int kFloatingButtonSize = 76;
-constexpr int kFloatingPanelWidth = 360;
-constexpr int kFloatingPanelHeight = 132;
+constexpr int kFloatingPanelWidth = 300;
+constexpr int kFloatingPanelHeight = 100;
 constexpr COLORREF kTransparentColor = RGB(255, 0, 255);
 using Microsoft::WRL::ComPtr;
 
@@ -350,7 +350,7 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
         DeleteObject(transparent);
       }
 
-      const int center_x = expanded ? 49 : kFloatingButtonSize / 2;
+      const int center_x = expanded ? 40 : kFloatingButtonSize / 2;
       const int center_y = expanded ? bounds.bottom / 2 : kFloatingButtonSize / 2;
       if (expanded && owner != nullptr) {
         const int wave = 1 + static_cast<int>(
@@ -361,8 +361,8 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
         HPEN halo = CreatePen(PS_SOLID, 2, status_color);
         HGDIOBJ previous_halo = SelectObject(dc, halo);
         SelectObject(dc, GetStockObject(NULL_BRUSH));
-        Ellipse(dc, center_x - 34 - wave, center_y - 34 - wave,
-                center_x + 34 + wave, center_y + 34 + wave);
+        Ellipse(dc, center_x - 27 - wave, center_y - 27 - wave,
+                center_x + 27 + wave, center_y + 27 + wave);
         SelectObject(dc, previous_halo);
         DeleteObject(halo);
       }
@@ -371,7 +371,9 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
       HPEN border = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
       HGDIOBJ old_brush = SelectObject(dc, fill);
       HGDIOBJ old_pen = SelectObject(dc, border);
-      Ellipse(dc, center_x - 30, center_y - 30, center_x + 30, center_y + 30);
+      const int face_radius = expanded ? 24 : 30;
+      Ellipse(dc, center_x - face_radius, center_y - face_radius,
+              center_x + face_radius, center_y + face_radius);
 
       HPEN icon_pen = CreatePen(PS_SOLID, 3, RGB(255, 255, 255));
       HGDIOBJ previous_pen = SelectObject(dc, icon_pen);
@@ -381,11 +383,11 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
       if (expanded) {
         // A simple Liyabona face gives the always-on-top control a friendly
         // identity; the ring animation communicates listening and speaking.
-        Ellipse(dc, center_x - 13, center_y - 10, center_x - 5, center_y - 2);
-        Ellipse(dc, center_x + 5, center_y - 10, center_x + 13, center_y - 2);
+        Ellipse(dc, center_x - 11, center_y - 8, center_x - 4, center_y - 1);
+        Ellipse(dc, center_x + 4, center_y - 8, center_x + 11, center_y - 1);
         SelectObject(dc, GetStockObject(NULL_BRUSH));
-        Arc(dc, center_x - 15, center_y - 5, center_x + 15, center_y + 17,
-            center_x - 15, center_y + 5, center_x + 15, center_y + 5);
+        Arc(dc, center_x - 12, center_y - 5, center_x + 12, center_y + 13,
+            center_x - 12, center_y + 4, center_x + 12, center_y + 4);
       } else {
         RoundRect(dc, center_x - 7, center_y - 16, center_x + 7,
                   center_y + 5, 7, 7);
@@ -410,12 +412,12 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
       if (expanded && owner != nullptr) {
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, RGB(255, 255, 255));
-        HFONT title_font = CreateFontW(-17, 0, 0, 0, FW_BOLD, FALSE, FALSE,
+        HFONT title_font = CreateFontW(-15, 0, 0, 0, FW_BOLD, FALSE, FALSE,
                                        FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                        DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
         HGDIOBJ old_font = SelectObject(dc, title_font);
-        RECT title_rect{96, 17, bounds.right - 18, 42};
+        RECT title_rect{76, 9, bounds.right - 12, 30};
         DrawTextW(dc, L"Liyabona AI", -1, &title_rect,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
@@ -425,13 +427,13 @@ LRESULT CALLBACK FlutterWindow::FloatingButtonWindowProc(
         else if (owner->floating_state_ == "processing") status = L"Working on your request";
         else if (owner->floating_state_ == "speaking") status = L"Speaking - click to stop";
         SetTextColor(dc, RGB(195, 231, 220));
-        RECT status_rect{96, 42, bounds.right - 16, 63};
+        RECT status_rect{76, 30, bounds.right - 12, 49};
         DrawTextW(dc, status, -1, &status_rect,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         const std::wstring transcript = ToWide(owner->floating_transcript_);
         SetTextColor(dc, RGB(255, 255, 255));
-        RECT transcript_rect{96, 65, bounds.right - 16, bounds.bottom - 13};
+        RECT transcript_rect{76, 50, bounds.right - 12, bounds.bottom - 8};
         DrawTextW(dc, transcript.c_str(), static_cast<int>(transcript.size()),
                   &transcript_rect,
                   DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
