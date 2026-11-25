@@ -139,7 +139,7 @@ OfflineTranscription TranscribeOfflinePcm16(
   params.suppress_blank = true;
   params.initial_prompt = kSouthAfricanEnglishPrompt;
   params.temperature = 0.0f;
-  params.no_speech_thold = 0.60f;
+  params.no_speech_thold = 0.55f;
   params.logprob_thold = -1.0f;
 
   if (whisper_full(state.context, params, samples.data(),
@@ -178,7 +178,7 @@ OfflineTranscription TranscribeOfflinePcm16(
     output.confidence = scored_tokens > 0
         ? std::exp(token_log_probability_sum / static_cast<double>(scored_tokens))
         : 0.0;
-    if (mean_no_speech > 0.70 || output.confidence < 0.05) output.text.clear();
+    if (mean_no_speech > 0.55 || output.confidence < 0.18) output.text.clear();
   }
   return output;
 }

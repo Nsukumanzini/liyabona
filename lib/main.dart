@@ -82,6 +82,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   int? _liveTranscriptChatIndex;
   String _windowsLivePhrase = '';
   int _windowsEmptyRecognitionCount = 0;
+  bool _windowsTranscriptSubmitted = false;
+  bool _windowsFinalResultReceived = false;
   Timer? _listenRestartTimer;
   Timer? _wakeWordRestartTimer;
   bool _wakeWordEnabled = false;
@@ -1943,10 +1945,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           setState(() => _listening = false);
           if (_isWindowsDesktop && wasListening && !_processing) {
             final partial = _windowsLivePhrase.trim();
-            if (partial.isNotEmpty) {
-              // Some Windows speech services return a useful partial result
-              // but omit the final-result event. Submit that visible text.
-              _submitLiveVoiceTranscript(partial);
+            if (partial.isNotEmpty && !_windowsFinalResultReceived) {
+              // A partial hypothesis is useful for display, but must never
+              // trigger an action. Only a final transcript may be submitted.
+              _clearLiveTranscript();
+              _transcript = 'I did not get a clear transcript. Listening again.';
             } else if (status == 'done') {
               _windowsEmptyRecognitionCount++;
               _clearLiveTranscript();
@@ -2023,14 +2026,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (!_voiceSession || !mounted || _processing || _listening) return;
     _interaction.begin();
     _interaction.move(VoicePhase.listening);
-    // Windows speech-to-text can produce partial words while the receptionist
-    // is speaking. Prefer that live, local path so each request is visible in
-    // Copilot before it is interpreted. Whisper remains the fallback when the
-    // Windows recognizer is unavailable.
-    if (_isWindowsDesktop && _speechReady) {
-      await _listenOfflineOnce();
-      return;
-    }
+    // On Windows, capture locally and wait for voice activity to end before
+    // transcribing. This avoids sending every speculative Windows STT partial
+    // to the command router. Windows speech recognition remains the fallback
+    // only when the bundled Whisper model cannot be used.
     if (_forceOfflineSpeech && !_isWindowsDesktop) {
       await _listenOfflineOnce();
       return;
@@ -2116,9 +2115,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
     if (count == 0) return;
     final rms = sqrt(sumSquares / count);
-    // Ignore room tone and light handling noise. A few hundred milliseconds
-    // of sustained voice energy are required before any audio is sent online.
-    if (rms >= 0.008) {
+    // Ignore room tone and light handling noise. Require sustained voice
+    // energy before sending a clip to the bundled local Whisper model.
+    if (rms >= 0.01) {
       _voicedSampleCount += count;
       _lastVoicedAt = DateTime.now();
     }
@@ -2138,14 +2137,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _finishingAudio = false;
       return;
     }
-    if (noSpeech || _voicedSampleCount < 2400) {
+    if (noSpeech || _voicedSampleCount < 6000) {
       _finishingAudio = false;
       setState(() {
         _listening = false;
-        _transcript = 'Repeat again.';
+        _transcript = 'No clear speech detected. Listening again.';
+        _assistantError = '';
       });
       _refreshAssistantPopup();
-      await _speak('Repeat again.');
       _scheduleListenRestart();
       return;
     }
@@ -2248,16 +2247,32 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       final confidence = confidenceValue is num
           ? confidenceValue.toDouble()
           : 0.0;
-      if (response?['available'] != true ||
-          recognized.length < 2 ||
-          confidence < 0.05) {
+      if (response?['available'] != true) {
         _processing = false;
         _refreshAssistantPopup();
         return false;
       }
+      if (recognized.length < 2 || confidence < 0.18) {
+        _interaction.move(VoicePhase.idle);
+        _listening = false;
+        _transcript = 'I could not hear clear words. No action was taken.';
+        _assistantError = 'Please repeat your request.';
+        _refreshAssistantPopup();
+        await _speak('Repeat again.');
+        _scheduleListenRestart();
+        // Empty or low-confidence recognition is a completed outcome. Do not
+        // pass the same noise to Windows speech recognition as a fallback.
+        return response?['available'] == true;
+      }
       _updateLiveTranscript(recognized, finalResult: true);
       _assistantError = 'Transcribed locally on this computer.';
       _refreshAssistantPopup();
+      // Keep the recognized words visible before interpreting or acting on
+      // them, so the receptionist can follow what Liyabona heard.
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!_interaction.isCurrent(generation) || !_voiceSession || !mounted) {
+        return true;
+      }
       await _handleVoiceCommand(recognized, consultAi: true);
       return true;
     } catch (_) {
@@ -2272,6 +2287,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _interaction.move(VoicePhase.listening);
     _listenRestartTimer?.cancel();
     _windowsLivePhrase = '';
+    _windowsTranscriptSubmitted = false;
+    _windowsFinalResultReceived = false;
     setState(() {
       _listening = true;
       _transcript = 'Listening. Your words will appear here.';
@@ -2288,7 +2305,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           onDevice: _isWindowsDesktop || _preferOnDeviceSpeech,
         ),
         onResult: (result) {
-          if (!mounted) return;
+          if (!mounted || _processing || _windowsTranscriptSubmitted) return;
           final heard = result.recognizedWords.trim();
           if (heard.isEmpty) return;
           _listenFailures = 0;
@@ -2300,8 +2317,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           }
           _windowsEmptyRecognitionCount = 0;
           _windowsLivePhrase = heard;
+          if (result.finalResult) _windowsFinalResultReceived = true;
           _updateLiveTranscript(heard, finalResult: result.finalResult);
-          if (result.finalResult && !_processing) {
+          if (result.finalResult && !_processing && !_windowsTranscriptSubmitted) {
             _submitLiveVoiceTranscript(heard);
           }
         },
@@ -2341,7 +2359,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   void _submitLiveVoiceTranscript(String phrase) {
     final heard = phrase.trim();
-    if (heard.isEmpty || _processing || !_voiceSession) return;
+    if (heard.isEmpty ||
+        _processing ||
+        !_voiceSession ||
+        _windowsTranscriptSubmitted) {
+      return;
+    }
+    _windowsTranscriptSubmitted = true;
+    unawaited(_speech.stop());
     _windowsLivePhrase = heard;
     _updateLiveTranscript(heard, finalResult: true);
     if (mounted) {
@@ -2358,7 +2383,11 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     // Submit the recognized words as a normal Copilot request. The local
     // interpreter can answer or propose an action; deterministic reception
     // routing still validates and performs supported tasks.
-    unawaited(_handleVoiceCommand(heard, consultAi: true));
+    unawaited(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!mounted || !_voiceSession) return;
+      await _handleVoiceCommand(heard, consultAi: true);
+    }());
   }
 
   void _scheduleListenRestart() {
