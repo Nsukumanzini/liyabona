@@ -2372,7 +2372,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (heard.isEmpty || _processing || !_voiceSession) return;
     _windowsLivePhrase = heard;
     _updateLiveTranscript(heard, finalResult: true);
-    _processing = true;
+    if (mounted) {
+      setState(() {
+        _listening = false;
+        _processing = true;
+      });
+    } else {
+      _listening = false;
+      _processing = true;
+    }
     if (_ttsSpeaking) _stopSpeaking();
     _refreshAssistantPopup();
     // Submit the recognized words as a normal Copilot request. The local
