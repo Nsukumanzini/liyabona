@@ -3,6 +3,8 @@
 #include <optional>
 #include <cwchar>
 #include <cwctype>
+#include <filesystem>
+#include <exception>
 #include <memory>
 #include <set>
 #include <string>
@@ -12,6 +14,8 @@
 #include <vector>
 
 #include <shellapi.h>
+#include <knownfolders.h>
+#include <shlobj.h>
 #include <UIAutomation.h>
 #include <wrl/client.h>
 
@@ -26,6 +30,7 @@ constexpr UINT kReadActiveAppKey = 'R';
 constexpr int kAssistantHotkey = 0x4D;
 constexpr int kEmergencyStopHotkey = 0x4E;
 constexpr UINT kOfflineTranscriptionReady = WM_APP + 41;
+constexpr UINT kOfficeDocumentReady = WM_APP + 42;
 constexpr UINT_PTR kFloatingAnimationTimer = 920;
 constexpr wchar_t kFloatingButtonClass[] = L"LiyabonaFloatingVoiceButton";
 constexpr int kFloatingButtonSize = 76;
@@ -33,6 +38,8 @@ constexpr int kFloatingPanelWidth = 300;
 constexpr int kFloatingPanelHeight = 100;
 constexpr COLORREF kTransparentColor = RGB(255, 0, 255);
 using Microsoft::WRL::ComPtr;
+int g_voice_access_known_state = -1;  // -1 unknown, 0 sleeping, 1 listening.
+bool g_voice_access_paused_by_app = false;
 
 bool IsVoiceAccessRunning() {
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -66,7 +73,13 @@ bool StartVoiceAccessIfNeeded() {
   }
   const auto launched = ShellExecuteW(nullptr, L"open", executable.c_str(),
                                       nullptr, nullptr, SW_SHOWNORMAL);
-  return reinterpret_cast<INT_PTR>(launched) > 32;
+  const bool started = reinterpret_cast<INT_PTR>(launched) > 32;
+  if (started) {
+    // A newly opened Voice Access session starts in its listening state unless
+    // Windows requires first-run setup. UIA can refine this when available.
+    g_voice_access_known_state = 1;
+  }
+  return started;
 }
 
 struct OfflineTranscriptionResult {
@@ -260,6 +273,332 @@ flutter::EncodableMap ReadForegroundAppText(HWND app_window) {
   payload[flutter::EncodableValue("text")] =
       flutter::EncodableValue(ToUtf8(text));
   return payload;
+}
+
+struct OfficeOperationResult {
+  bool success = false;
+  std::wstring path;
+  std::wstring error;
+};
+
+struct OfficeDocumentResponse {
+  std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
+  OfficeOperationResult operation;
+};
+
+HRESULT DispatchId(IDispatch* target, const wchar_t* name, DISPID* id) {
+  if (target == nullptr || name == nullptr || id == nullptr) return E_POINTER;
+  LPOLESTR member = const_cast<LPOLESTR>(name);
+  return target->GetIDsOfNames(IID_NULL, &member, 1, LOCALE_USER_DEFAULT, id);
+}
+
+HRESULT DispatchInvoke(IDispatch* target, const wchar_t* name, WORD flags,
+                       VARIANT* arguments, UINT argument_count,
+                       VARIANT* returned = nullptr) {
+  DISPID id = DISPID_UNKNOWN;
+  HRESULT status = DispatchId(target, name, &id);
+  if (FAILED(status)) return status;
+  DISPPARAMS parameters{};
+  parameters.rgvarg = arguments;
+  parameters.cArgs = argument_count;
+  VARIANT ignored;
+  VariantInit(&ignored);
+  VARIANT* output = returned == nullptr ? &ignored : returned;
+  status = target->Invoke(id, IID_NULL, LOCALE_USER_DEFAULT, flags,
+                         &parameters, output, nullptr, nullptr);
+  VariantClear(&ignored);
+  return status;
+}
+
+ComPtr<IDispatch> DispatchObjectProperty(IDispatch* target,
+                                         const wchar_t* property) {
+  ComPtr<IDispatch> object;
+  VARIANT returned;
+  VariantInit(&returned);
+  if (SUCCEEDED(DispatchInvoke(target, property, DISPATCH_PROPERTYGET, nullptr,
+                               0, &returned))) {
+    if (returned.vt == VT_DISPATCH && returned.pdispVal != nullptr) {
+      object.Attach(returned.pdispVal);
+      returned.vt = VT_EMPTY;
+    } else if (returned.vt == VT_UNKNOWN && returned.punkVal != nullptr) {
+      returned.punkVal->QueryInterface(IID_PPV_ARGS(&object));
+    }
+  }
+  VariantClear(&returned);
+  return object;
+}
+
+bool DispatchPutString(IDispatch* target, const wchar_t* property,
+                       const std::wstring& value) {
+  DISPID id = DISPID_UNKNOWN;
+  if (FAILED(DispatchId(target, property, &id))) return false;
+  VARIANT argument;
+  VariantInit(&argument);
+  argument.vt = VT_BSTR;
+  argument.bstrVal = SysAllocStringLen(value.data(),
+                                       static_cast<UINT>(value.size()));
+  if (argument.bstrVal == nullptr) return false;
+  DISPID named = DISPID_PROPERTYPUT;
+  DISPPARAMS parameters{&argument, &named, 1, 1};
+  const HRESULT status = target->Invoke(id, IID_NULL, LOCALE_USER_DEFAULT,
+                                        DISPATCH_PROPERTYPUT, &parameters,
+                                        nullptr, nullptr, nullptr);
+  VariantClear(&argument);
+  return SUCCEEDED(status);
+}
+
+bool DispatchPutBool(IDispatch* target, const wchar_t* property, bool value) {
+  DISPID id = DISPID_UNKNOWN;
+  if (FAILED(DispatchId(target, property, &id))) return false;
+  VARIANT argument;
+  VariantInit(&argument);
+  argument.vt = VT_BOOL;
+  argument.boolVal = value ? VARIANT_TRUE : VARIANT_FALSE;
+  DISPID named = DISPID_PROPERTYPUT;
+  DISPPARAMS parameters{&argument, &named, 1, 1};
+  return SUCCEEDED(target->Invoke(id, IID_NULL, LOCALE_USER_DEFAULT,
+                                  DISPATCH_PROPERTYPUT, &parameters, nullptr,
+                                  nullptr, nullptr));
+}
+
+bool DispatchPutLong(IDispatch* target, const wchar_t* property, LONG value) {
+  DISPID id = DISPID_UNKNOWN;
+  if (FAILED(DispatchId(target, property, &id))) return false;
+  VARIANT argument;
+  VariantInit(&argument);
+  argument.vt = VT_I4;
+  argument.lVal = value;
+  DISPID named = DISPID_PROPERTYPUT;
+  DISPPARAMS parameters{&argument, &named, 1, 1};
+  return SUCCEEDED(target->Invoke(id, IID_NULL, LOCALE_USER_DEFAULT,
+                                  DISPATCH_PROPERTYPUT, &parameters, nullptr,
+                                  nullptr, nullptr));
+}
+
+std::wstring SafeOfficeTitle(const std::wstring& title) {
+  std::wstring safe;
+  for (const wchar_t character : title) {
+    if (iswalnum(character) || character == L' ' || character == L'-' ||
+        character == L'_') {
+      safe.push_back(character);
+    }
+  }
+  while (!safe.empty() && iswspace(safe.back())) safe.pop_back();
+  while (!safe.empty() && iswspace(safe.front())) safe.erase(safe.begin());
+  if (safe.empty()) safe = L"Reception Draft";
+  if (safe.size() > 80) safe.resize(80);
+  return safe;
+}
+
+std::wstring NewOfficePath(const std::wstring& title,
+                           const wchar_t* extension) {
+  PWSTR local_app_data = nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE,
+                                 nullptr, &local_app_data))) {
+    return L"";
+  }
+  std::filesystem::path directory(local_app_data);
+  CoTaskMemFree(local_app_data);
+  directory /= L"Liyabona";
+  directory /= L"Documents";
+  std::error_code error;
+  std::filesystem::create_directories(directory, error);
+  if (error) return L"";
+  const std::wstring safe_title = SafeOfficeTitle(title);
+  for (int index = 1; index < 10000; ++index) {
+    std::wstring name = safe_title;
+    if (index > 1) name.append(L" (" + std::to_wstring(index) + L")");
+    name.append(extension);
+    const std::filesystem::path candidate = directory / name;
+    if (!std::filesystem::exists(candidate, error) && !error) {
+      return candidate.wstring();
+    }
+  }
+  return L"";
+}
+
+bool PutTextRange(IDispatch* range, const std::wstring& text) {
+  return DispatchPutString(range, L"Text", text);
+}
+
+OfficeOperationResult CreateWordDocument(const std::wstring& title,
+                                         const std::wstring& body) {
+  OfficeOperationResult result;
+  result.path = NewOfficePath(title, L".docx");
+  if (result.path.empty()) {
+    result.error = L"The Liyabona Documents folder is unavailable.";
+    return result;
+  }
+  const HRESULT com_status = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  const bool uninitialize = SUCCEEDED(com_status);
+  CLSID class_id{};
+  ComPtr<IDispatch> word;
+  HRESULT status = CLSIDFromProgID(L"Word.Application", &class_id);
+  if (SUCCEEDED(status)) {
+    status = CoCreateInstance(class_id, nullptr, CLSCTX_LOCAL_SERVER,
+                              IID_PPV_ARGS(&word));
+  }
+  if (FAILED(status) || !word) {
+    result.error = L"Microsoft Word is not installed or could not be started.";
+  } else {
+    DispatchPutBool(word.Get(), L"Visible", true);
+    ComPtr<IDispatch> documents = DispatchObjectProperty(word.Get(), L"Documents");
+    VARIANT created;
+    VariantInit(&created);
+    status = documents ? DispatchInvoke(documents.Get(), L"Add", DISPATCH_METHOD,
+                                        nullptr, 0, &created) : E_FAIL;
+    ComPtr<IDispatch> document;
+    if (SUCCEEDED(status) && created.vt == VT_DISPATCH && created.pdispVal) {
+      document.Attach(created.pdispVal);
+      created.vt = VT_EMPTY;
+    }
+    VariantClear(&created);
+    ComPtr<IDispatch> range = DispatchObjectProperty(document.Get(), L"Content");
+    VARIANT save_arguments[2];
+    VariantInit(&save_arguments[0]);
+    VariantInit(&save_arguments[1]);
+    save_arguments[0].vt = VT_I4;
+    save_arguments[0].lVal = 16;  // wdFormatXMLDocument (.docx)
+    save_arguments[1].vt = VT_BSTR;
+    save_arguments[1].bstrVal = SysAllocString(result.path.c_str());
+    const std::wstring complete_document = title + L"\r\n\r\n" + body;
+    const bool written = range && PutTextRange(range.Get(), complete_document);
+    const bool saved = written && save_arguments[1].bstrVal != nullptr &&
+        SUCCEEDED(DispatchInvoke(document.Get(), L"SaveAs2", DISPATCH_METHOD,
+                                 save_arguments, 2));
+    VariantClear(&save_arguments[0]);
+    VariantClear(&save_arguments[1]);
+    std::error_code file_error;
+    if (saved && std::filesystem::exists(result.path, file_error) &&
+        !file_error) {
+      result.success = true;
+    } else {
+      result.error = L"Word could not write the new document.";
+      result.path.clear();
+    }
+  }
+  word.Reset();
+  if (uninitialize) CoUninitialize();
+  return result;
+}
+
+bool AddPowerPointTextBox(IDispatch* shapes, LONG left, LONG top, LONG width,
+                          LONG height, const std::wstring& text) {
+  // AddTextbox arguments are passed in reverse COM order.
+  VARIANT arguments[5];
+  for (auto& argument : arguments) VariantInit(&argument);
+  arguments[0].vt = VT_I4; arguments[0].lVal = height;
+  arguments[1].vt = VT_I4; arguments[1].lVal = width;
+  arguments[2].vt = VT_I4; arguments[2].lVal = top;
+  arguments[3].vt = VT_I4; arguments[3].lVal = left;
+  arguments[4].vt = VT_I4; arguments[4].lVal = 1;  // horizontal text
+  VARIANT returned;
+  VariantInit(&returned);
+  const HRESULT status = DispatchInvoke(shapes, L"AddTextbox", DISPATCH_METHOD,
+                                        arguments, 5, &returned);
+  for (auto& argument : arguments) VariantClear(&argument);
+  ComPtr<IDispatch> shape;
+  if (SUCCEEDED(status) && returned.vt == VT_DISPATCH && returned.pdispVal) {
+    shape.Attach(returned.pdispVal);
+    returned.vt = VT_EMPTY;
+  }
+  VariantClear(&returned);
+  ComPtr<IDispatch> frame = DispatchObjectProperty(shape.Get(), L"TextFrame");
+  ComPtr<IDispatch> range = DispatchObjectProperty(frame.Get(), L"TextRange");
+  return range && PutTextRange(range.Get(), text);
+}
+
+OfficeOperationResult CreatePowerPoint(const std::wstring& title,
+                                       const std::wstring& body) {
+  OfficeOperationResult result;
+  result.path = NewOfficePath(title, L".pptx");
+  if (result.path.empty()) {
+    result.error = L"The Liyabona Documents folder is unavailable.";
+    return result;
+  }
+  const HRESULT com_status = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  const bool uninitialize = SUCCEEDED(com_status);
+  CLSID class_id{};
+  ComPtr<IDispatch> powerpoint;
+  HRESULT status = CLSIDFromProgID(L"PowerPoint.Application", &class_id);
+  if (SUCCEEDED(status)) {
+    status = CoCreateInstance(class_id, nullptr, CLSCTX_LOCAL_SERVER,
+                              IID_PPV_ARGS(&powerpoint));
+  }
+  if (FAILED(status) || !powerpoint) {
+    result.error = L"Microsoft PowerPoint is not installed or could not be started.";
+  } else {
+    DispatchPutLong(powerpoint.Get(), L"Visible", -1);
+    ComPtr<IDispatch> presentations =
+        DispatchObjectProperty(powerpoint.Get(), L"Presentations");
+    VARIANT created;
+    VariantInit(&created);
+    status = presentations ? DispatchInvoke(presentations.Get(), L"Add",
+                                             DISPATCH_METHOD, nullptr, 0,
+                                             &created) : E_FAIL;
+    ComPtr<IDispatch> presentation;
+    if (SUCCEEDED(status) && created.vt == VT_DISPATCH && created.pdispVal) {
+      presentation.Attach(created.pdispVal);
+      created.vt = VT_EMPTY;
+    }
+    VariantClear(&created);
+    ComPtr<IDispatch> slides =
+        DispatchObjectProperty(presentation.Get(), L"Slides");
+    VARIANT add_arguments[2];
+    VariantInit(&add_arguments[0]);
+    VariantInit(&add_arguments[1]);
+    add_arguments[0].vt = VT_I4; add_arguments[0].lVal = 12;  // blank layout
+    add_arguments[1].vt = VT_I4; add_arguments[1].lVal = 1;
+    VARIANT slide_value;
+    VariantInit(&slide_value);
+    status = slides ? DispatchInvoke(slides.Get(), L"Add", DISPATCH_METHOD,
+                                     add_arguments, 2, &slide_value) : E_FAIL;
+    VariantClear(&add_arguments[0]);
+    VariantClear(&add_arguments[1]);
+    ComPtr<IDispatch> slide;
+    if (SUCCEEDED(status) && slide_value.vt == VT_DISPATCH && slide_value.pdispVal) {
+      slide.Attach(slide_value.pdispVal);
+      slide_value.vt = VT_EMPTY;
+    }
+    VariantClear(&slide_value);
+    ComPtr<IDispatch> shapes = DispatchObjectProperty(slide.Get(), L"Shapes");
+    const bool content_added = shapes &&
+        AddPowerPointTextBox(shapes.Get(), 45, 25, 630, 75, title) &&
+        AddPowerPointTextBox(shapes.Get(), 55, 120, 620, 360, body);
+    VARIANT save_arguments[2];
+    VariantInit(&save_arguments[0]);
+    VariantInit(&save_arguments[1]);
+    save_arguments[0].vt = VT_I4; save_arguments[0].lVal = 24;  // .pptx
+    save_arguments[1].vt = VT_BSTR;
+    save_arguments[1].bstrVal = SysAllocString(result.path.c_str());
+    const bool saved = content_added && save_arguments[1].bstrVal != nullptr &&
+        SUCCEEDED(DispatchInvoke(presentation.Get(), L"SaveAs", DISPATCH_METHOD,
+                                 save_arguments, 2));
+    VariantClear(&save_arguments[0]);
+    VariantClear(&save_arguments[1]);
+    std::error_code file_error;
+    if (saved && std::filesystem::exists(result.path, file_error) &&
+        !file_error) {
+      result.success = true;
+    } else {
+      result.error = L"PowerPoint could not write the new presentation.";
+      result.path.clear();
+    }
+  }
+  powerpoint.Reset();
+  if (uninitialize) CoUninitialize();
+  return result;
+}
+
+bool SendVoiceAccessSleepShortcut() {
+  INPUT inputs[6]{};
+  const WORD keys[] = {VK_MENU, VK_SHIFT, 'B', 'B', VK_SHIFT, VK_MENU};
+  for (size_t i = 0; i < 6; ++i) {
+    inputs[i].type = INPUT_KEYBOARD;
+    inputs[i].ki.wVk = keys[i];
+    if (i >= 3) inputs[i].ki.dwFlags = KEYEVENTF_KEYUP;
+  }
+  return SendInput(6, inputs, sizeof(INPUT)) == 6;
 }
 }  // namespace
 
@@ -528,6 +867,29 @@ bool FlutterWindow::OnCreate() {
       } else if (call.method_name() == "startVoiceAccess") {
         result->Success(
             flutter::EncodableValue(StartVoiceAccessIfNeeded()));
+      } else if (call.method_name() == "markVoiceAccessListening") {
+        if (IsVoiceAccessRunning()) g_voice_access_known_state = 1;
+        result->Success(flutter::EncodableValue(
+            g_voice_access_known_state == 1));
+      } else if (call.method_name() == "pauseVoiceAccess") {
+        // Only change a state Liyabona can identify. Do not toggle Voice Access
+        // when it may already be asleep or its status is unknown.
+        const bool paused = IsVoiceAccessRunning() &&
+            g_voice_access_known_state == 1 &&
+            !g_voice_access_paused_by_app && SendVoiceAccessSleepShortcut();
+        if (paused) {
+          g_voice_access_known_state = 0;
+          g_voice_access_paused_by_app = true;
+        }
+        result->Success(flutter::EncodableValue(paused));
+      } else if (call.method_name() == "resumeVoiceAccess") {
+        const bool resumed = g_voice_access_paused_by_app &&
+            IsVoiceAccessRunning() && SendVoiceAccessSleepShortcut();
+        if (resumed) {
+          g_voice_access_known_state = 1;
+          g_voice_access_paused_by_app = false;
+        }
+        result->Success(flutter::EncodableValue(resumed));
       } else if (call.method_name() == "focusMainWindow") {
         ShowWindow(GetHandle(), SW_RESTORE);
         SetForegroundWindow(GetHandle());
@@ -619,6 +981,67 @@ bool FlutterWindow::OnCreate() {
           }
           result->Success(flutter::EncodableValue(
               reinterpret_cast<INT_PTR>(launch_result) > 32));
+        } else if (call.method_name() == "searchEdge") {
+          const std::string* url = call.arguments() == nullptr
+              ? nullptr
+              : std::get_if<std::string>(call.arguments());
+          const std::wstring wide_url = url == nullptr ? L"" : ToWide(*url);
+          const bool approved_url = wide_url.rfind(
+              L"https://www.bing.com/search?", 0) == 0;
+          std::wstring parameters = L"\"" + wide_url + L"\"";
+          const auto launch_result = approved_url
+              ? ShellExecuteW(GetHandle(), L"open", L"msedge.exe",
+                              parameters.c_str(), nullptr, SW_SHOWNORMAL)
+              : nullptr;
+          result->Success(flutter::EncodableValue(
+              reinterpret_cast<INT_PTR>(launch_result) > 32));
+        } else if (call.method_name() == "createWordDocument" ||
+                   call.method_name() == "createPowerPoint") {
+          const auto* arguments = call.arguments() == nullptr
+              ? nullptr
+              : std::get_if<flutter::EncodableMap>(call.arguments());
+          std::wstring title;
+          std::wstring body;
+          if (arguments != nullptr) {
+            for (const auto& entry : *arguments) {
+              const auto* key = std::get_if<std::string>(&entry.first);
+              const auto* value = std::get_if<std::string>(&entry.second);
+              if (key == nullptr || value == nullptr) continue;
+              if (*key == "title") title = ToWide(*value);
+              if (*key == "body") body = ToWide(*value);
+            }
+          }
+          if (title.empty() || body.empty()) {
+            result->Error("invalid_document", "A title and non-empty draft are required.");
+            return;
+          }
+          if (title.size() > 120 || body.size() > 24000) {
+            result->Error("document_too_large", "The draft exceeds the local document size limit.");
+            return;
+          }
+          const bool create_word = call.method_name() == "createWordDocument";
+          const HWND result_window = GetHandle();
+          auto shared_result =
+              std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
+                  std::move(result));
+          std::thread([result_window, shared_result, title = std::move(title),
+                       body = std::move(body), create_word]() mutable {
+            OfficeOperationResult operation;
+            try {
+              operation = create_word ? CreateWordDocument(title, body)
+                                      : CreatePowerPoint(title, body);
+            } catch (const std::exception&) {
+              operation.error = L"Office document creation failed unexpectedly.";
+            } catch (...) {
+              operation.error = L"Office document creation failed unexpectedly.";
+            }
+            auto* response = new OfficeDocumentResponse{shared_result,
+                                                        std::move(operation)};
+            if (!PostMessageW(result_window, kOfficeDocumentReady, 0,
+                              reinterpret_cast<LPARAM>(response))) {
+              delete response;
+            }
+          }).detach();
         } else if (call.method_name() == "setFloatingState") {
           std::string state = "idle";
           std::string transcript;
@@ -668,6 +1091,11 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (g_voice_access_paused_by_app && IsVoiceAccessRunning()) {
+    SendVoiceAccessSleepShortcut();
+    g_voice_access_paused_by_app = false;
+    g_voice_access_known_state = 1;
+  }
   if (emergency_stop_hotkey_registered_) {
     UnregisterHotKey(GetHandle(), kEmergencyStopHotkey);
     emergency_stop_hotkey_registered_ = false;
@@ -725,6 +1153,20 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
           flutter::EncodableValue(response->transcription.text);
       payload[flutter::EncodableValue("confidence")] =
           flutter::EncodableValue(response->transcription.confidence);
+      response->result->Success(flutter::EncodableValue(payload));
+      return 0;
+    }
+    case kOfficeDocumentReady: {
+      std::unique_ptr<OfficeDocumentResponse> response(
+          reinterpret_cast<OfficeDocumentResponse*>(lparam));
+      if (!response || !response->result) return 0;
+      flutter::EncodableMap payload;
+      payload[flutter::EncodableValue("success")] =
+          flutter::EncodableValue(response->operation.success);
+      payload[flutter::EncodableValue("path")] =
+          flutter::EncodableValue(ToUtf8(response->operation.path));
+      payload[flutter::EncodableValue("error")] =
+          flutter::EncodableValue(ToUtf8(response->operation.error));
       response->result->Success(flutter::EncodableValue(payload));
       return 0;
     }

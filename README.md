@@ -8,7 +8,7 @@ Liyabona is an accessibility-focused reception workspace for TVET Student Suppor
 
 On Windows, Liyabona opens Windows Voice Access when it starts (if Voice Access is not already running), focuses the Copilot message box, and does not capture microphone audio itself. Set Voice Access to **Dictation mode** before speaking. In Dictation mode, Windows types speech into the focused message box instead of interpreting it as commands to open or control other apps. Liyabona sends the text after **3 seconds without new typing**; pressing **Enter** or **Send** still sends immediately. The floating assistant and **Ctrl+Alt+Space** bring Voice Access back to the message box. **Ctrl+Alt+R** reads accessible text from the active Windows app; external app reading is local and read-only.
 
-Voice Access must already be configured in Windows, including its language files and microphone. On the first launch, complete any Voice Access setup prompt, return to Liyabona, then use its Voice Access button to refocus the message box. Liyabona launches `VoiceAccess.exe` directly instead of sending a toggle shortcut, so it will not accidentally switch off a Voice Access session that is already open. If Voice Access is running but asleep or its microphone is off, wake or unmute it using its own controls. Microsoft documents **Alt+Shift+B** to toggle between listening and sleep; Liyabona does not send that toggle because it cannot safely infer the current microphone state. To avoid Voice Access executing a spoken app command, say **“Dictation mode”** when Voice Access is active. Liyabona's 3-second idle submit also applies to text typed manually into the Copilot box on Windows.
+Voice Access must already be configured in Windows, including its language files and microphone. On the first launch, complete any Voice Access setup prompt, return to Liyabona, then use its Voice Access button to refocus the message box. Liyabona launches `VoiceAccess.exe` directly instead of sending a toggle shortcut on startup. Once Liyabona has accepted a request and verified that it completed, it uses **Alt+Shift+B** to put Voice Access to sleep while it speaks the result, then wakes it again. Unclear requests, clarifications and failed operations do not trigger this handoff. If the Voice Access session is not running or its state is unknown, Liyabona leaves it alone. If Voice Access is asleep before dictation, wake it using its own controls. To avoid Voice Access executing an app command, use **Dictation mode** while Liyabona is listening. Liyabona's 3-second idle submit also applies to text typed manually into the Copilot box on Windows.
 
 Known reception actions use deterministic command handling. Qwen3 0.6B Q4_K_M runs locally through the bundled llama.cpp CPU runtime for general answers and email composition. Email commands open the Emails screen, save a draft in the current list, and write a local file at:
 
@@ -17,6 +17,21 @@ Known reception actions use deterministic command handling. Qwen3 0.6B Q4_K_M ru
 ```
 
 If the local model is unavailable or takes too long to compose an email, Liyabona saves a professional built-in template instead. Drafts are not sent. College mailbox connection and sending are not implemented.
+
+On Windows, Liyabona can draft content with the local model and ask installed
+Microsoft Office applications to save it. Word drafts are saved as `.docx` and
+PowerPoint drafts as `.pptx` under `%LOCALAPPDATA%\Liyabona\Documents`; new
+filenames are chosen so existing documents are not overwritten. The files open
+in the corresponding Office application. Email drafts are stored locally in
+Liyabona's Emails screen and are not sent. Say “write an essay about student
+success in Word,” “create a PowerPoint presentation about registration,” or
+“draft an email to the campus manager about the meeting.” Local model output
+should be reviewed before institutional use. These Office actions require the
+corresponding desktop Office application to be installed and available.
+
+Say “search the web for student funding in Edge” to open a Bing search in Edge.
+That action uses the internet only because web search itself is online; it does
+not send the query to Liyabona's local AI service.
 
 On Windows, the approved app launcher also supports Microsoft Teams, OneNote,
 Google Chrome, Zoom Workplace, Adobe Acrobat Reader and Microsoft Photos, in addition to the
@@ -31,6 +46,9 @@ Try voice or text commands such as:
 - “Create a note about the registration meeting.”
 - “Add a task to prepare the welcome packs.”
 - “Generate an email to the campus manager about registration.”
+- “Write an essay about student success in Word.”
+- “Create a PowerPoint presentation about registration.”
+- “Search the web for student funding in Edge.”
 - “Show an example of an email draft.”
 - “Read the screen.”
 - “Open Microsoft Teams.”
