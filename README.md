@@ -6,7 +6,7 @@ Liyabona is an accessibility-focused reception workspace for TVET Student Suppor
 
 ## Windows voice and local AI
 
-On Windows, activate the microphone and say one request. Liyabona records locally until you pause, transcribes that clip with bundled Whisper, shows the finished words in Copilot, then interprets the transcript. It ignores partial Windows speech guesses; Windows speech recognition is only a fallback when Whisper is unavailable. Silence and low-confidence transcripts do not run commands. The compact floating assistant can be started with **Ctrl+Alt+Space**; **Ctrl+Alt+R** reads accessible text from the active Windows app. External app reading is local and read-only.
+On Windows, activate the microphone and speak. Recognized words appear live in the Copilot message box. Review or edit them, then press **Enter** or **Send**; voice input never sends a request or performs an action automatically. The microphone stops when the transcript is ready. If live Windows recognition is unavailable, bundled Whisper transcribes a short clip and puts its completed transcript in the same message box. The compact floating assistant can be started with **Ctrl+Alt+Space**; **Ctrl+Alt+R** reads accessible text from the active Windows app. External app reading is local and read-only.
 
 Known reception actions use deterministic command handling. Qwen3 0.6B Q4_K_M runs locally through the bundled llama.cpp CPU runtime for general answers and email composition. Email commands open the Emails screen, save a draft in the current list, and write a local file at:
 
@@ -36,7 +36,7 @@ Try voice or text commands such as:
 - “Open Adobe Acrobat Reader.”
 - “Open Zoom.”
 
-The assistant displays the words it recognized before carrying out the request. If it did not hear the instruction correctly, repeat it. Use the microphone button or floating assistant again for the next request.
+Spoken words stay in the Copilot message box until you press Enter or Send. Review or edit the transcript before submitting it. If recognition is unavailable, use the keyboard to enter the request.
 
 ## Local data and privacy
 

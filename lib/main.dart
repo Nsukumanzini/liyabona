@@ -79,11 +79,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   bool _ttsSpeaking = false;
   bool _greetingPlaying = false;
   int _listenFailures = 0;
-  int? _liveTranscriptChatIndex;
   String _windowsLivePhrase = '';
+  String _voiceDraft = '';
+  String _voiceDraftBase = '';
   int _windowsEmptyRecognitionCount = 0;
-  bool _windowsTranscriptSubmitted = false;
-  bool _windowsFinalResultReceived = false;
   Timer? _listenRestartTimer;
   Timer? _wakeWordRestartTimer;
   bool _wakeWordEnabled = false;
@@ -1109,35 +1108,39 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   void _updateLiveTranscript(String text, {bool finalResult = false}) {
     final phrase = text.trim();
     if (phrase.isEmpty) return;
+    final base = _voiceDraftBase.trim();
+    final draft = base.isEmpty ? phrase : '$base $phrase';
     setState(() {
-      _transcript = 'I heard: $phrase';
+      _voiceDraft = draft;
+      _transcript = finalResult
+          ? 'Transcript ready. Press Enter to send.'
+          : 'Writing recognized words in the message box…';
       _heardPhrase = phrase;
       _interpretation = finalResult
-          ? 'Transcript complete; sending your words to Liyabona AI'
-          : 'Writing your words as you speak';
-      final index = _liveTranscriptChatIndex;
-      if (index != null && index < _chat.length) {
-        _chat[index] = _ChatLine(true, phrase);
-      } else if (_chat.isNotEmpty &&
-          _chat.last.user &&
-          _chat.last.text == phrase) {
-        _liveTranscriptChatIndex = _chat.length - 1;
-      } else {
-        _liveTranscriptChatIndex = _chat.length;
-        _chat.add(_ChatLine(true, phrase));
-      }
-      if (finalResult) _liveTranscriptChatIndex = null;
+          ? 'Review the transcript, then press Enter to send'
+          : 'Writing recognized words live';
     });
     _refreshAssistantPopup();
   }
 
   void _clearLiveTranscript() {
-    final index = _liveTranscriptChatIndex;
-    if (index != null && index < _chat.length) {
-      setState(() => _chat.removeAt(index));
-    }
-    _liveTranscriptChatIndex = null;
     _windowsLivePhrase = '';
+  }
+
+  void _finishVoiceDraft(String status) {
+    if (!mounted) return;
+    unawaited(_speech.stop());
+    _interaction.move(VoicePhase.idle);
+    setState(() {
+      _listening = false;
+      _processing = false;
+      _voiceSession = false;
+      _transcript = status;
+      _assistantError = _voiceDraft.trim().isEmpty
+          ? 'No words were captured. Try speaking again.'
+          : 'Nothing has been sent. Review the words and press Enter to send.';
+    });
+    _refreshAssistantPopup();
   }
 
   void _addUserChatLine(String text) {
@@ -1865,6 +1868,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
     _preferOnDeviceSpeech = true;
     _forceOfflineSpeech = false;
+    _voiceDraftBase = _voiceDraft.trim();
     _awaitingSessionChoice = false;
     _listenFailures = 0;
     _windowsEmptyRecognitionCount = 0;
@@ -1943,21 +1947,18 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         } else if (status == 'done' || status == 'notListening') {
           final wasListening = _listening;
           setState(() => _listening = false);
-          if (_isWindowsDesktop && wasListening && !_processing) {
+          if (wasListening && !_processing) {
             final partial = _windowsLivePhrase.trim();
-            if (partial.isNotEmpty && !_windowsFinalResultReceived) {
-              // A partial hypothesis is useful for display, but must never
-              // trigger an action. Only a final transcript may be submitted.
-              _clearLiveTranscript();
-              _transcript = 'I did not get a clear transcript. Listening again.';
+            if (partial.isNotEmpty) {
+              // Keep a partial hypothesis for manual review. Voice input never
+              // sends itself to the command handler.
+              _finishVoiceDraft('Transcript ready. Review it and press Enter to send.');
             } else if (status == 'done') {
               _windowsEmptyRecognitionCount++;
-              _clearLiveTranscript();
               if (_windowsEmptyRecognitionCount >= 3) {
                 _speechReady = false;
                 _windowsEmptyRecognitionCount = 0;
-                _assistantError =
-                    'Whisper is unavailable. Trying Windows speech recognition as a backup.';
+                _assistantError = 'Speech recognition returned no words. Check the microphone and try again.';
                 _listenFailures = 0;
               } else {
                 _transcript = 'I did not hear speech. Listening again.';
@@ -2026,11 +2027,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (!_voiceSession || !mounted || _processing || _listening) return;
     _interaction.begin();
     _interaction.move(VoicePhase.listening);
-    // On Windows, capture locally and wait for voice activity to end before
-    // transcribing. This avoids sending every speculative Windows STT partial
-    // to the command router. Windows speech recognition remains the fallback
-    // only when the bundled Whisper model cannot be used.
-    if (_forceOfflineSpeech && !_isWindowsDesktop) {
+    // Prefer live on-device Windows speech results so words can appear in the
+    // Copilot input as they are spoken. They remain an unsent draft; the user
+    // must press Enter or Send before any command can run. Whisper supplies a
+    // completed draft only when live recognition is unavailable.
+    if ((_isWindowsDesktop && _speechReady) ||
+        (_forceOfflineSpeech && !_isWindowsDesktop)) {
       await _listenOfflineOnce();
       return;
     }
@@ -2254,26 +2256,12 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
       if (recognized.length < 2 || confidence < 0.18) {
         _interaction.move(VoicePhase.idle);
-        _listening = false;
-        _transcript = 'I could not hear clear words. No action was taken.';
-        _assistantError = 'Please repeat your request.';
-        _refreshAssistantPopup();
-        await _speak('Repeat again.');
-        _scheduleListenRestart();
-        // Empty or low-confidence recognition is a completed outcome. Do not
-        // pass the same noisy clip to Windows speech recognition as a fallback.
+        _finishVoiceDraft('No clear words were transcribed. Try speaking again.');
+        // Do not pass the same noisy clip to another recognizer or command route.
         return response?['available'] == true;
       }
       _updateLiveTranscript(recognized, finalResult: true);
-      _assistantError = 'Transcribed locally on this computer.';
-      _refreshAssistantPopup();
-      // Keep the recognized words visible before interpreting or acting on
-      // them, so the receptionist can follow what Liyabona heard.
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      if (!_interaction.isCurrent(generation) || !_voiceSession || !mounted) {
-        return true;
-      }
-      await _handleVoiceCommand(recognized, consultAi: true);
+      _finishVoiceDraft('Transcript ready. Review it and press Enter to send.');
       return true;
     } catch (_) {
       _processing = false;
@@ -2287,8 +2275,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _interaction.move(VoicePhase.listening);
     _listenRestartTimer?.cancel();
     _windowsLivePhrase = '';
-    _windowsTranscriptSubmitted = false;
-    _windowsFinalResultReceived = false;
     setState(() {
       _listening = true;
       _transcript = 'Listening. Your words will appear here.';
@@ -2305,7 +2291,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           onDevice: _isWindowsDesktop || _preferOnDeviceSpeech,
         ),
         onResult: (result) {
-          if (!mounted || _processing || _windowsTranscriptSubmitted) return;
+          if (!mounted || !_voiceSession || _processing) return;
           final heard = result.recognizedWords.trim();
           if (heard.isEmpty) return;
           _listenFailures = 0;
@@ -2317,10 +2303,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           }
           _windowsEmptyRecognitionCount = 0;
           _windowsLivePhrase = heard;
-          if (result.finalResult) _windowsFinalResultReceived = true;
           _updateLiveTranscript(heard, finalResult: result.finalResult);
-          if (result.finalResult && !_processing && !_windowsTranscriptSubmitted) {
-            _submitLiveVoiceTranscript(heard);
+          if (result.finalResult && !_processing) {
+            _finishVoiceDraft('Transcript ready. Review it and press Enter to send.');
           }
         },
       );
@@ -2357,37 +2342,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
   }
 
-  void _submitLiveVoiceTranscript(String phrase) {
-    final heard = phrase.trim();
-    if (heard.isEmpty ||
-        _processing ||
-        !_voiceSession ||
-        _windowsTranscriptSubmitted) {
-      return;
-    }
-    _windowsTranscriptSubmitted = true;
-    unawaited(_speech.stop());
-    _windowsLivePhrase = heard;
-    _updateLiveTranscript(heard, finalResult: true);
+  Future<void> _askFromCopilot(String question) async {
     if (mounted) {
       setState(() {
-        _listening = false;
-        _processing = true;
+        _voiceDraft = '';
+        _voiceDraftBase = '';
       });
-    } else {
-      _listening = false;
-      _processing = true;
     }
-    if (_ttsSpeaking) _stopSpeaking();
-    _refreshAssistantPopup();
-    // Submit the recognized words as a normal Copilot request. The local
-    // interpreter can answer or propose an action; deterministic reception
-    // routing still validates and performs supported tasks.
-    unawaited(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      if (!mounted || !_voiceSession) return;
-      await _handleVoiceCommand(heard, consultAi: true);
-    }());
+    await _askCopilot(question);
   }
 
   void _scheduleListenRestart() {
@@ -3836,7 +3798,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     ),
     'AI copilot' => _CopilotPage(
       chat: _chat,
-      onAsk: _askCopilot,
+      onAsk: _askFromCopilot,
+      voiceDraft: _voiceDraft,
       busy: _assistantBusy,
       error: _assistantError,
       listening: _voiceSession,
@@ -6695,6 +6658,7 @@ class _CopilotPage extends StatefulWidget {
   const _CopilotPage({
     required this.chat,
     required this.onAsk,
+    required this.voiceDraft,
     required this.busy,
     required this.error,
     required this.listening,
@@ -6707,6 +6671,7 @@ class _CopilotPage extends StatefulWidget {
   });
   final List<_ChatLine> chat;
   final Future<void> Function(String) onAsk;
+  final String voiceDraft;
   final bool busy;
   final String error;
   final bool listening;
@@ -6722,6 +6687,25 @@ class _CopilotPage extends StatefulWidget {
 
 class _CopilotPageState extends State<_CopilotPage> {
   final _input = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _input.text = widget.voiceDraft;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CopilotPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.voiceDraft != oldWidget.voiceDraft &&
+        widget.voiceDraft != _input.text) {
+      _input.value = TextEditingValue(
+        text: widget.voiceDraft,
+        selection: TextSelection.collapsed(offset: widget.voiceDraft.length),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _input.dispose();
@@ -6794,7 +6778,7 @@ class _CopilotPageState extends State<_CopilotPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Your voice → recognised words → interpreter checks available screens and actions → app responds or asks you to clarify.',
+              'Your voice → words appear in the message box → you review and press Enter → Liyabona checks the request and responds or asks you to clarify.',
               style: TextStyle(fontSize: 13, height: 1.5, color: ink),
             ),
             const SizedBox(height: 8),
@@ -6804,7 +6788,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Liyabona AI performs app actions directly. Use the microphone here when you want to speak; you can also type requests.',
+              'Spoken words appear in the Copilot message box while you speak. Review or edit the transcript, then press Enter to send it. Voice input never performs an action before you send it.',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -6813,7 +6797,7 @@ class _CopilotPageState extends State<_CopilotPage> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Windows: click the Liyabona assistant button or press Control + Alt + Space to start a voice session without restoring the full app window. The smaller floating panel shows when Liyabona is listening, transcribing or speaking. Liyabona captures one short audio clip locally, waits for you to pause, transcribes it with bundled Whisper and displays the words in Copilot before interpreting them. Windows speech recognition is only a backup when Whisper is unavailable; partial guesses are never sent as commands. Silence and unclear transcripts do not run actions. The microphone stays off until activated unless you turn on the optional Assist wake word. To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
+              'Windows: click the microphone or press Control + Alt + Space to start voice input. Recognized words appear live in the Copilot message box. Review or edit them, then press Enter or Send; nothing is sent or acted on automatically. The microphone turns off when a transcript is ready. If live Windows recognition is unavailable, Liyabona uses bundled Whisper and places its completed transcript in the same box. To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
               style: TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],
@@ -6968,7 +6952,7 @@ class _CopilotPageState extends State<_CopilotPage> {
               maxLength: 600,
               onSubmitted: (_) => _send(),
               decoration: const InputDecoration(
-                labelText: 'Tell Liyabona AI what you need',
+                labelText: 'Review words, then press Enter to send',
                 prefixIcon: Icon(Icons.chat_bubble_outline),
               ),
             ),
