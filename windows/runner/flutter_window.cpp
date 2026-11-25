@@ -1,11 +1,13 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <cwchar>
 #include <cwctype>
 #include <memory>
 #include <set>
 #include <string>
 #include <thread>
+#include <tlhelp32.h>
 #include <variant>
 #include <vector>
 
@@ -31,6 +33,41 @@ constexpr int kFloatingPanelWidth = 300;
 constexpr int kFloatingPanelHeight = 100;
 constexpr COLORREF kTransparentColor = RGB(255, 0, 255);
 using Microsoft::WRL::ComPtr;
+
+bool IsVoiceAccessRunning() {
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snapshot == INVALID_HANDLE_VALUE) return false;
+  PROCESSENTRY32W entry{};
+  entry.dwSize = sizeof(entry);
+  bool running = false;
+  if (Process32FirstW(snapshot, &entry)) {
+    do {
+      if (_wcsicmp(entry.szExeFile, L"VoiceAccess.exe") == 0) {
+        running = true;
+        break;
+      }
+    } while (Process32NextW(snapshot, &entry));
+  }
+  CloseHandle(snapshot);
+  return running;
+}
+
+bool StartVoiceAccessIfNeeded() {
+  // Voice Access is a toggle in some Windows builds. Checking for its process
+  // first avoids sending a start shortcut that could turn an active session off.
+  if (IsVoiceAccessRunning()) return true;
+  wchar_t system_directory[MAX_PATH]{};
+  const UINT length = GetSystemDirectoryW(system_directory, MAX_PATH);
+  if (length == 0 || length >= MAX_PATH) return false;
+  std::wstring executable(system_directory, length);
+  executable.append(L"\\VoiceAccess.exe");
+  if (GetFileAttributesW(executable.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    return false;
+  }
+  const auto launched = ShellExecuteW(nullptr, L"open", executable.c_str(),
+                                      nullptr, nullptr, SW_SHOWNORMAL);
+  return reinterpret_cast<INT_PTR>(launched) > 32;
+}
 
 struct OfflineTranscriptionResult {
   std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
@@ -488,7 +525,14 @@ bool FlutterWindow::OnCreate() {
         if (call.method_name() == "readActiveApp") {
           result->Success(
               flutter::EncodableValue(ReadForegroundAppText(GetHandle())));
-        } else if (call.method_name() == "transcribeOffline") {
+      } else if (call.method_name() == "startVoiceAccess") {
+        result->Success(
+            flutter::EncodableValue(StartVoiceAccessIfNeeded()));
+      } else if (call.method_name() == "focusMainWindow") {
+        ShowWindow(GetHandle(), SW_RESTORE);
+        SetForegroundWindow(GetHandle());
+        result->Success(flutter::EncodableValue(true));
+      } else if (call.method_name() == "transcribeOffline") {
           const auto* arguments = call.arguments() == nullptr
               ? nullptr
               : std::get_if<flutter::EncodableMap>(call.arguments());

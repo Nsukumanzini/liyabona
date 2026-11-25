@@ -6,7 +6,9 @@ Liyabona is an accessibility-focused reception workspace for TVET Student Suppor
 
 ## Windows voice and local AI
 
-On Windows, activate the microphone and speak. Recognized words appear live in the Copilot message box. Review or edit them, then press **Enter** or **Send**; voice input never sends a request or performs an action automatically. The microphone stops when the transcript is ready. If live Windows recognition is unavailable, bundled Whisper transcribes a short clip and puts its completed transcript in the same message box. The compact floating assistant can be started with **Ctrl+Alt+Space**; **Ctrl+Alt+R** reads accessible text from the active Windows app. External app reading is local and read-only.
+On Windows, Liyabona opens Windows Voice Access when it starts (if Voice Access is not already running), focuses the Copilot message box, and does not capture microphone audio itself. Set Voice Access to **Dictation mode** before speaking. In Dictation mode, Windows types speech into the focused message box instead of interpreting it as commands to open or control other apps. Liyabona sends the text after **3 seconds without new typing**; pressing **Enter** or **Send** still sends immediately. The floating assistant and **Ctrl+Alt+Space** bring Voice Access back to the message box. **Ctrl+Alt+R** reads accessible text from the active Windows app; external app reading is local and read-only.
+
+Voice Access must already be configured in Windows, including its language files and microphone. Liyabona launches `VoiceAccess.exe` directly instead of sending a toggle shortcut, so it will not accidentally switch off a Voice Access session that is already open. If Voice Access is running but asleep or its microphone is off, wake or unmute it using its own controls. Microsoft documents **Alt+Shift+B** to toggle between listening and sleep; Liyabona does not send that toggle because it cannot safely infer the current microphone state. To avoid Voice Access executing a spoken app command, say **“Dictation mode”** when Voice Access is active. Liyabona's 3-second idle submit also applies to text typed manually into the Copilot box on Windows.
 
 Known reception actions use deterministic command handling. Qwen3 0.6B Q4_K_M runs locally through the bundled llama.cpp CPU runtime for general answers and email composition. Email commands open the Emails screen, save a draft in the current list, and write a local file at:
 
@@ -36,7 +38,7 @@ Try voice or text commands such as:
 - “Open Adobe Acrobat Reader.”
 - “Open Zoom.”
 
-Spoken words stay in the Copilot message box until you press Enter or Send. Review or edit the transcript before submitting it. If recognition is unavailable, use the keyboard to enter the request.
+On Windows, dictated or typed words are sent after the composer has been idle for three seconds; use **Enter** or **Send** to submit immediately. On other platforms, review or edit the transcript and press **Enter** or **Send** manually.
 
 ## Local data and privacy
 
@@ -56,8 +58,10 @@ Windows compilation requires Flutter 3.50.0, CMake and Visual Studio with the De
 
 ## Physical acceptance checks still required
 
-- Verify voice pickup and South African English transcription with the receptionist’s microphone and room conditions.
-- Try short commands and email requests with the microphone, then confirm the recognized words, draft in the Emails screen and local JSON file.
+- Confirm Windows Voice Access opens on Liyabona startup and the Copilot message box receives focus.
+- Set Voice Access to Dictation mode; speak a request and verify the words are typed before Liyabona submits them after three idle seconds.
+- Confirm Voice Access does not open applications while in Dictation mode, then verify Liyabona handles typed requests and saves email drafts locally.
+- Test with the actual microphone, room acoustics, South African English speech, NVDA and Windows Narrator.
 - Test spoken responses, NVDA and Windows Narrator.
 - Check startup, memory use, and a normal workday on the college’s lowest-specification computer.
 - Confirm the college’s approval for local storage of any institutional information.

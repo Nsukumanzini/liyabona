@@ -44,6 +44,7 @@ class LiyabonaApp extends StatefulWidget {
 
 class _LiyabonaAppState extends State<LiyabonaApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
+  final _copilotInputFocus = FocusNode(debugLabel: 'Liyabona Copilot message');
   LocalEngine? _localEngine;
   final _interaction = VoiceInteraction();
   final _speech = stt.SpeechToText();
@@ -76,6 +77,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   bool _largeText = false;
   bool _assistantBusy = false;
   String _assistantError = '';
+  String _windowsVoiceAccessStatus = '';
+  bool _windowsVoiceAccessAvailable = false;
   bool _ttsSpeaking = false;
   bool _greetingPlaying = false;
   int _listenFailures = 0;
@@ -84,10 +87,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   String _voiceDraftBase = '';
   int _windowsEmptyRecognitionCount = 0;
   Timer? _listenRestartTimer;
-  Timer? _wakeWordRestartTimer;
-  bool _wakeWordEnabled = false;
-  bool _wakeWordListening = false;
-  bool _wakeLaunchInProgress = false;
   bool _assistantPopupOpen = false;
   String _lastSpeechText = '';
   String _windowsScreenText = '';
@@ -294,7 +293,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _windowsAccessibilityChannel.setMethodCallHandler(
         _handleWindowsAccessibilityCall,
       );
-      unawaited(_loadWakeWordPreference());
     }
     _tts.setLanguage('en-ZA');
     _tts.setSpeechRate(.5);
@@ -316,8 +314,62 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _refreshAssistantPopup();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_speak('Hello, I hope you are doing well'));
+      if (!mounted) return;
+      if (_isWindowsDesktop) {
+        unawaited(_startWindowsVoiceAccessAtStartup());
+      } else {
+        unawaited(_speak('Hello, I hope you are doing well'));
+      }
     });
+  }
+
+  Future<void> _startWindowsVoiceAccessAtStartup() async {
+    // Finish the greeting before opening Voice Access so it cannot dictate
+    // Liyabona's own greeting into the focused composer.
+    try {
+      await _speak('Hello, I hope you are doing well');
+      await _waitForSpeechToFinish();
+    } catch (_) {}
+    if (mounted) await _activateWindowsVoiceAccess(startup: true);
+  }
+
+  Future<void> _activateWindowsVoiceAccess({bool startup = false}) async {
+    if (!_isWindowsDesktop || !mounted) return;
+    _listenRestartTimer?.cancel();
+    _voiceSession = false;
+    _listening = false;
+    _processing = false;
+    _go('AI copilot');
+    try {
+      final available = await _windowsAccessibilityChannel
+          .invokeMethod<bool>('startVoiceAccess')
+          .timeout(const Duration(seconds: 4));
+      await _windowsAccessibilityChannel.invokeMethod<void>('focusMainWindow');
+      if (!mounted) return;
+      setState(() {
+        _windowsVoiceAccessAvailable = available == true;
+        _windowsVoiceAccessStatus = available == true
+            ? 'Windows Voice Access is open and the message box is focused. If it is asleep or its microphone is off, wake it with its own controls.'
+            : 'Windows Voice Access could not be started. Turn it on in Windows Settings > Accessibility > Speech, then return here.';
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _copilotInputFocus.requestFocus();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _windowsVoiceAccessAvailable = false;
+        _windowsVoiceAccessStatus =
+            'Could not start Windows Voice Access. Turn it on in Windows Settings > Accessibility > Speech.';
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _copilotInputFocus.requestFocus();
+      });
+    }
+    if (startup && _windowsVoiceAccessAvailable) {
+      _transcript = 'Voice Access is ready. Speak in Dictation mode.';
+      _refreshAssistantPopup();
+    }
   }
 
   Future<void> _loadKnowledge() async {
@@ -358,7 +410,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       return null;
     }
     if (call.method == 'activateAssistant') {
-      await _handleAssistantButton(showPopup: false);
+      await _activateWindowsVoiceAccess();
       return null;
     }
     if (call.method != 'activeWindowText' || call.arguments is! Map)
@@ -529,160 +581,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       _refreshAssistantPopup();
       if (_voiceSession && mounted) await _stopVoiceAfterTask();
     }
-  }
-
-  Future<void> _loadWakeWordPreference() async {
-    try {
-      final preferences = await SharedPreferences.getInstance().timeout(
-        const Duration(seconds: 2),
-      );
-      if (!mounted || preferences.getBool('liyabona_wake_word_v1') != true) {
-        return;
-      }
-      setState(() => _wakeWordEnabled = true);
-      await _startWakeWordListening();
-    } catch (_) {
-      // Voice wake stays off if the saved preference cannot be read.
-    }
-  }
-
-  Future<void> _setWakeWordEnabled(bool enabled) async {
-    if (!_isWindowsDesktop) return;
-    setState(() {
-      _wakeWordEnabled = enabled;
-      _assistantError = '';
-    });
-    _refreshAssistantPopup();
-    try {
-      final preferences = await SharedPreferences.getInstance().timeout(
-        const Duration(seconds: 2),
-      );
-      await preferences.setBool('liyabona_wake_word_v1', enabled);
-    } catch (_) {}
-
-    if (enabled) {
-      _announce(
-        'Wake word enabled. The microphone will listen locally for Assist while Liyabona is open. Say Assist to start a voice session.',
-      );
-      await _startWakeWordListening();
-    } else {
-      _wakeWordRestartTimer?.cancel();
-      _wakeWordListening = false;
-      if (!_voiceSession) await _speech.stop();
-      _refreshAssistantPopup();
-      _announce('Wake word is off. The microphone is no longer listening.');
-    }
-  }
-
-  Future<void> _startWakeWordListening() async {
-    if (!_isWindowsDesktop ||
-        !_wakeWordEnabled ||
-        _voiceSession ||
-        _wakeWordListening ||
-        _wakeLaunchInProgress ||
-        _assistantBusy ||
-        _processing ||
-        _ttsSpeaking ||
-        !mounted)
-      return;
-    _wakeWordRestartTimer?.cancel();
-    _wakeWordListening = true;
-    _refreshAssistantPopup();
-    try {
-      final initialized = await _speech.initialize(
-        onError: (error) {
-          if (!mounted || !_wakeWordEnabled || _voiceSession) return;
-          _wakeWordListening = false;
-          _assistantError = 'Wake word recognition stopped. Check Windows speech and microphone settings.';
-          _refreshAssistantPopup();
-        },
-        onStatus: (status) {
-          if (!mounted || !_wakeWordEnabled || _voiceSession) return;
-          if (status == 'listening') {
-            _wakeWordListening = true;
-            _refreshAssistantPopup();
-          } else if (status == 'done' || status == 'notListening') {
-            _wakeWordListening = false;
-            _refreshAssistantPopup();
-            _scheduleWakeWordRestart();
-          }
-        },
-      );
-      if (!initialized) {
-        _wakeWordListening = false;
-        _assistantError = 'Windows speech recognition is unavailable for the Assist wake word.';
-        _refreshAssistantPopup();
-        return;
-      }
-
-      try {
-        final locales = await _speech.locales();
-        _speechLocale = const ['en-ZA', 'en-GB', 'en-US'].firstWhere(
-          (preferred) => locales.any(
-            (locale) => locale.localeId.replaceAll('_', '-') == preferred,
-          ),
-          orElse: () => '',
-        );
-        if (_speechLocale!.isEmpty) _speechLocale = null;
-      } catch (_) {}
-
-      await _speech.listen(
-        listenOptions: stt.SpeechListenOptions(
-          localeId: _speechLocale,
-          listenFor: const Duration(minutes: 5),
-          pauseFor: const Duration(seconds: 2),
-          partialResults: false,
-          cancelOnError: false,
-          onDevice: true,
-        ),
-        onResult: (result) {
-          if (!mounted ||
-              !_wakeWordEnabled ||
-              _voiceSession ||
-              !result.finalResult) {
-            return;
-          }
-          final recognized = result.recognizedWords
-              .toLowerCase()
-              .replaceAll(RegExp(r'[^a-z ]'), ' ')
-              .replaceAll(RegExp(r'\s+'), ' ')
-              .trim();
-          if (recognized != 'assist') return;
-          _wakeWordListening = false;
-          _wakeLaunchInProgress = true;
-          _wakeWordRestartTimer?.cancel();
-          _refreshAssistantPopup();
-          unawaited(
-            _speech.stop().whenComplete(() {
-              if (mounted) unawaited(_handleAssistantButton());
-            }),
-          );
-        },
-      );
-    } catch (_) {
-      _wakeWordListening = false;
-      _assistantError = 'Could not start the Assist wake word. Check Windows microphone access.';
-      _refreshAssistantPopup();
-    }
-  }
-
-  void _scheduleWakeWordRestart() {
-    if (!_wakeWordEnabled ||
-        _voiceSession ||
-        _wakeWordListening ||
-        _wakeLaunchInProgress ||
-        _assistantBusy ||
-        _processing ||
-        !mounted ||
-        _ttsSpeaking ||
-        (_wakeWordRestartTimer?.isActive ?? false)) {
-      return;
-    }
-    _wakeWordRestartTimer = Timer(const Duration(milliseconds: 900), () {
-      if (_wakeWordEnabled && !_voiceSession && mounted) {
-        unawaited(_startWakeWordListening());
-      }
-    });
   }
 
   Future<void> _saveKnowledge(String value) async {
@@ -1002,6 +900,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     _speech.stop();
     _tts.stop();
     _knowledgeController.dispose();
+    _copilotInputFocus.dispose();
     super.dispose();
   }
 
@@ -1021,13 +920,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   Future<void> _speak(String text, {bool toggle = false}) async {
     if (text.trim().isEmpty) return;
-    if (_wakeWordEnabled && !_voiceSession) {
-      _wakeWordRestartTimer?.cancel();
-      if (_wakeWordListening) {
-        _wakeWordListening = false;
-        unawaited(_speech.stop());
-      }
-    }
     if (toggle && _ttsSpeaking && _lastSpeechText == text) {
       _stopSpeaking();
       return;
@@ -1079,8 +971,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     if (_isWindowsDesktop) {
       final state = _listening
           ? 'listening'
-          : _wakeWordListening
-          ? 'wake'
           : (_processing || _assistantBusy)
           ? 'processing'
           : _ttsSpeaking
@@ -1094,7 +984,6 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             })
             .catchError((_) {}),
       );
-      _scheduleWakeWordRestart();
     }
     final rebuild = _popupRebuild;
     if (rebuild == null || !mounted) return;
@@ -1844,6 +1733,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   Future<void> _toggleVoice({bool greet = false}) async {
+    if (_isWindowsDesktop) {
+      await _activateWindowsVoiceAccess();
+      return;
+    }
     if (_voiceSession || _listening) {
       _voiceSession = false;
       _processing = false;
@@ -2024,20 +1917,18 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
   }
 
   Future<void> _listenOnce() async {
+    if (_isWindowsDesktop) {
+      await _activateWindowsVoiceAccess();
+      return;
+    }
     if (!_voiceSession || !mounted || _processing || _listening) return;
     _interaction.begin();
     _interaction.move(VoicePhase.listening);
-    // Prefer live on-device Windows speech results so words can appear in the
-    // Copilot input as they are spoken. They remain an unsent draft; the user
-    // must press Enter or Send before any command can run. Whisper supplies a
-    // completed draft only when live recognition is unavailable.
-    if ((_isWindowsDesktop && _speechReady) ||
-        (_forceOfflineSpeech && !_isWindowsDesktop)) {
+    if (_forceOfflineSpeech) {
       await _listenOfflineOnce();
       return;
     }
     _listenRestartTimer?.cancel();
-    _wakeWordRestartTimer?.cancel();
     try {
       if (!await _audioRecorder.hasPermission()) {
         throw StateError('Microphone permission was not granted.');
@@ -3617,7 +3508,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               .join('. '),
     'Learners' => 'Learner directory with illustrative contacts for registration, academic, financial aid and accessibility support.',
     'Knowledge' => 'Reception reference. Hours and campus directions should be confirmed with Student Support before sharing them as official information.',
-    'AI copilot' => 'Liyabona AI is ready for reception questions and app actions. Use the message box to type or the microphone control to speak.',
+    'AI copilot' => _isWindowsDesktop
+        ? 'Liyabona AI is ready. Windows Voice Access enters speech in the focused message box; Liyabona sends it after three seconds without new typing.'
+        : 'Liyabona AI is ready for reception questions and app actions. Use the message box or microphone control.',
     'Visitors' =>
       'Visitor register. ${_visitors.where((v) => v.checkedOut == null).length} visitors are currently checked in. ${_visitors.take(4).map((v) => '${v.name}, visiting ${v.host}').join('. ')}',
     'Tasks' =>
@@ -3800,13 +3693,15 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       chat: _chat,
       onAsk: _askFromCopilot,
       voiceDraft: _voiceDraft,
+      inputFocus: _copilotInputFocus,
+      windowsVoiceAccessMode: _isWindowsDesktop,
+      windowsVoiceAccessAvailable: _windowsVoiceAccessAvailable,
+      windowsVoiceAccessStatus: _windowsVoiceAccessStatus,
+      onActivateWindowsVoiceAccess: () =>
+          unawaited(_activateWindowsVoiceAccess()),
       busy: _assistantBusy,
       error: _assistantError,
       listening: _voiceSession,
-      wakeWordSupported: _isWindowsDesktop,
-      wakeWordEnabled: _wakeWordEnabled,
-      wakeWordListening: _wakeWordListening,
-      onWakeWordChanged: _setWakeWordEnabled,
       onVoice: _toggleVoice,
       onSpeak: (text) => _speak(text, toggle: true),
     ),
@@ -3999,24 +3894,28 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
 
   Widget _actionButtons() => FloatingActionButton(
     heroTag: 'liyabona-ai-button',
-    tooltip: _voiceSession
+    tooltip: _isWindowsDesktop
+        ? 'Open Windows Voice Access and focus Liyabona message box'
+        : _voiceSession
         ? 'Stop Liyabona AI listening'
-        : _wakeWordListening
-        ? 'Liyabona is listening locally for Assist'
         : 'Start Liyabona AI voice assistant',
     onPressed: () => unawaited(_handleAssistantButton()),
     backgroundColor: forest,
     foregroundColor: Colors.white,
     child: _AnimatedAssistantCharacter(
       active:
-          _voiceSession || _wakeWordListening || _assistantBusy || _ttsSpeaking,
+          _voiceSession || _assistantBusy || _ttsSpeaking,
       speaking: _ttsSpeaking,
-      listening: _listening || _wakeWordListening,
+      listening: _listening,
       size: 46,
     ),
   );
 
   Future<void> _handleAssistantButton({bool showPopup = true}) async {
+    if (_isWindowsDesktop) {
+      await _activateWindowsVoiceAccess();
+      return;
+    }
     if (_voiceSession) {
       if (showPopup) {
         _closeAssistantPopup();
@@ -4025,19 +3924,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
       return;
     }
-    _wakeLaunchInProgress = true;
-    _wakeWordRestartTimer?.cancel();
-    if (_wakeWordListening) {
-      _wakeWordListening = false;
-      await _speech.stop();
-    }
     if (showPopup) _openAssistantPopup();
-    try {
-      await _toggleVoice(greet: true);
-    } finally {
-      _wakeLaunchInProgress = false;
-      if (!_voiceSession) _scheduleWakeWordRestart();
-    }
+    await _toggleVoice(greet: true);
   }
 
   void _closeAssistantPopup() {
@@ -6659,26 +6547,28 @@ class _CopilotPage extends StatefulWidget {
     required this.chat,
     required this.onAsk,
     required this.voiceDraft,
+    required this.inputFocus,
+    required this.windowsVoiceAccessMode,
+    required this.windowsVoiceAccessAvailable,
+    required this.windowsVoiceAccessStatus,
+    required this.onActivateWindowsVoiceAccess,
     required this.busy,
     required this.error,
     required this.listening,
-    required this.wakeWordSupported,
-    required this.wakeWordEnabled,
-    required this.wakeWordListening,
-    required this.onWakeWordChanged,
     required this.onVoice,
     required this.onSpeak,
   });
   final List<_ChatLine> chat;
   final Future<void> Function(String) onAsk;
   final String voiceDraft;
+  final FocusNode inputFocus;
+  final bool windowsVoiceAccessMode;
+  final bool windowsVoiceAccessAvailable;
+  final String windowsVoiceAccessStatus;
+  final VoidCallback onActivateWindowsVoiceAccess;
   final bool busy;
   final String error;
   final bool listening;
-  final bool wakeWordSupported;
-  final bool wakeWordEnabled;
-  final bool wakeWordListening;
-  final ValueChanged<bool> onWakeWordChanged;
   final VoidCallback onVoice;
   final ValueChanged<String> onSpeak;
   @override
@@ -6687,6 +6577,7 @@ class _CopilotPage extends StatefulWidget {
 
 class _CopilotPageState extends State<_CopilotPage> {
   final _input = TextEditingController();
+  Timer? _idleSubmitTimer;
 
   @override
   void initState() {
@@ -6708,13 +6599,27 @@ class _CopilotPageState extends State<_CopilotPage> {
 
   @override
   void dispose() {
+    _idleSubmitTimer?.cancel();
     _input.dispose();
     super.dispose();
+  }
+
+  void _onComposerChanged(String value) {
+    _idleSubmitTimer?.cancel();
+    if (!widget.windowsVoiceAccessMode || widget.busy || value.trim().isEmpty) {
+      return;
+    }
+    final capturedText = value.trim();
+    _idleSubmitTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || widget.busy || _input.text.trim() != capturedText) return;
+      _send();
+    });
   }
 
   void _send() {
     final q = _input.text.trim();
     if (q.isEmpty) return;
+    _idleSubmitTimer?.cancel();
     _input.clear();
     unawaited(widget.onAsk(q));
   }
@@ -6777,9 +6682,11 @@ class _CopilotPageState extends State<_CopilotPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Your voice → words appear in the message box → you review and press Enter → Liyabona checks the request and responds or asks you to clarify.',
-              style: TextStyle(fontSize: 13, height: 1.5, color: ink),
+            Text(
+              widget.windowsVoiceAccessMode
+                  ? 'Windows Voice Access writes your speech into the focused message box. Liyabona sends the text after three seconds without new typing.'
+                  : 'Your voice → words appear in the message box → you review and press Enter → Liyabona checks the request and responds or asks you to clarify.',
+              style: const TextStyle(fontSize: 13, height: 1.5, color: ink),
             ),
             const SizedBox(height: 8),
             const Text(
@@ -6787,8 +6694,10 @@ class _CopilotPageState extends State<_CopilotPage> {
               style: TextStyle(fontSize: 12, height: 1.45, color: forest),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Spoken words appear in the Copilot message box while you speak. Review or edit the transcript, then press Enter to send it. Voice input never performs an action before you send it.',
+            Text(
+              widget.windowsVoiceAccessMode
+                  ? 'For safe text entry, say “Dictation mode” to Windows Voice Access. In that mode, spoken commands are typed here rather than run directly by Windows. Liyabona submits the completed text after three quiet seconds.'
+                  : 'Spoken words appear in the Copilot message box while you speak. Review or edit the transcript, then press Enter to send it. Voice input never performs an action before you send it.',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -6796,29 +6705,44 @@ class _CopilotPageState extends State<_CopilotPage> {
               ),
             ),
             const SizedBox(height: 10),
-            const Text(
-              'Windows: click the microphone or press Control + Alt + Space to start voice input. Recognized words appear live in the Copilot message box. Review or edit them, then press Enter or Send; nothing is sent or acted on automatically. The microphone turns off when a transcript is ready. If live Windows recognition is unavailable, Liyabona uses bundled Whisper and places its completed transcript in the same box. To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
-              style: TextStyle(fontSize: 12, height: 1.5, color: ink),
+            Text(
+              widget.windowsVoiceAccessMode
+                  ? 'On Windows, Liyabona opens Voice Access when the app starts (if it is not already running) and does not capture microphone audio itself. This box is focused for dictation. Voice Access must be set to Dictation mode; its Dictation mode treats speech as text instead of app commands. The text is submitted after three seconds without typing. Press Control + Alt + Space or the Voice Access button to reopen Voice Access and refocus this box. Control + Alt + R reads accessible text from another app. Screen reading is read-only.'
+                  : 'To read an email, document or other app, switch to it and say “read” or press Control + Alt + R. Screen text is read locally in sections; say “continue reading” or “repeat” for voice navigation. Reading is read-only and does not send screen text to an external service or change the other app.',
+              style: const TextStyle(fontSize: 12, height: 1.5, color: ink),
             ),
           ],
         ),
       ),
       const SizedBox(height: 14),
-      if (widget.wakeWordSupported) ...[
+      if (widget.windowsVoiceAccessMode) ...[
         _PanelCard(
-          title: 'Assist wake word',
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: widget.wakeWordEnabled,
-            onChanged: widget.onWakeWordChanged,
-            title: const Text('Say “Assist” to wake Liyabona'),
-            subtitle: Text(
-              widget.wakeWordListening
-                  ? 'Microphone is on. Windows listens locally for “Assist”.'
-                  : widget.wakeWordEnabled
-                  ? 'Wake word is enabled. Waiting for Windows speech recognition.'
-                  : 'Off by default. Turning this on keeps the microphone active locally while Liyabona is open.',
-            ),
+          title: 'Windows Voice Access',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.windowsVoiceAccessStatus.isEmpty
+                    ? 'Liyabona does not listen through its own microphone on Windows.'
+                    : widget.windowsVoiceAccessStatus,
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: widget.onActivateWindowsVoiceAccess,
+                  icon: const Icon(Icons.keyboard_voice_rounded),
+                  label: const Text('Open Voice Access and focus this box'),
+                ),
+              ),
+              if (widget.windowsVoiceAccessAvailable) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Tip: say “Dictation mode” after Voice Access opens. This prevents it from treating your request as a Windows app command.',
+                  style: TextStyle(fontSize: 12, height: 1.45, color: forest),
+                ),
+              ],
+            ],
           ),
         ),
         const SizedBox(height: 14),
@@ -6923,36 +6847,54 @@ class _CopilotPageState extends State<_CopilotPage> {
         ),
       Row(
         children: [
-          Semantics(
-            button: true,
-            label: widget.listening
-                ? 'Stop speaking to Liyabona AI'
-                : 'Speak to Liyabona AI',
-            child: IconButton.filledTonal(
-              tooltip: widget.listening
-                  ? 'Stop voice input'
-                  : 'Speak to Liyabona AI',
-              onPressed: widget.onVoice,
-              icon: Icon(
-                widget.listening ? Icons.stop_rounded : Icons.mic_rounded,
+          if (widget.windowsVoiceAccessMode)
+            Semantics(
+              button: true,
+              label: 'Open Windows Voice Access and focus the Liyabona message box',
+              child: IconButton.filledTonal(
+                tooltip: 'Open Windows Voice Access',
+                onPressed: widget.onActivateWindowsVoiceAccess,
+                icon: const Icon(Icons.keyboard_voice_rounded),
+                style: IconButton.styleFrom(
+                  foregroundColor: forest,
+                  backgroundColor: mint,
+                ),
               ),
-              style: IconButton.styleFrom(
-                foregroundColor: widget.listening ? Colors.white : forest,
-                backgroundColor: widget.listening
-                    ? const Color(0xFF9D3427)
-                    : mint,
+            )
+          else
+            Semantics(
+              button: true,
+              label: widget.listening
+                  ? 'Stop speaking to Liyabona AI'
+                  : 'Speak to Liyabona AI',
+              child: IconButton.filledTonal(
+                tooltip: widget.listening
+                    ? 'Stop voice input'
+                    : 'Speak to Liyabona AI',
+                onPressed: widget.onVoice,
+                icon: Icon(
+                  widget.listening ? Icons.stop_rounded : Icons.mic_rounded,
+                ),
+                style: IconButton.styleFrom(
+                  foregroundColor: widget.listening ? Colors.white : forest,
+                  backgroundColor: widget.listening
+                      ? const Color(0xFF9D3427)
+                      : mint,
+                ),
               ),
             ),
-          ),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
               controller: _input,
+              focusNode: widget.inputFocus,
+              autofocus: widget.windowsVoiceAccessMode,
               enabled: !widget.busy,
               maxLength: 600,
+              onChanged: _onComposerChanged,
               onSubmitted: (_) => _send(),
               decoration: const InputDecoration(
-                labelText: 'Review words, then press Enter to send',
+                labelText: 'Tell Liyabona AI what you need',
                 prefixIcon: Icon(Icons.chat_bubble_outline),
               ),
             ),
