@@ -63,6 +63,10 @@ bool StartVoiceAccessIfNeeded() {
   // Voice Access is a toggle in some Windows builds. Checking for its process
   // first avoids sending a start shortcut that could turn an active session off.
   if (IsVoiceAccessRunning()) return true;
+  // If Voice Access was closed externally, discard the in-process sleep
+  // ownership flag before starting a fresh listening session.
+  g_voice_access_paused_by_app = false;
+  g_voice_access_known_state = -1;
   wchar_t system_directory[MAX_PATH]{};
   const UINT length = GetSystemDirectoryW(system_directory, MAX_PATH);
   if (length == 0 || length >= MAX_PATH) return false;
@@ -868,7 +872,11 @@ bool FlutterWindow::OnCreate() {
         result->Success(
             flutter::EncodableValue(StartVoiceAccessIfNeeded()));
       } else if (call.method_name() == "markVoiceAccessListening") {
-        if (IsVoiceAccessRunning()) g_voice_access_known_state = 1;
+        // A dictated request proves it was listening, unless Liyabona has
+        // explicitly put it to sleep since that request was received.
+        if (IsVoiceAccessRunning() && !g_voice_access_paused_by_app) {
+          g_voice_access_known_state = 1;
+        }
         result->Success(flutter::EncodableValue(
             g_voice_access_known_state == 1));
       } else if (call.method_name() == "pauseVoiceAccess") {
@@ -1091,11 +1099,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
-  if (g_voice_access_paused_by_app && IsVoiceAccessRunning()) {
-    SendVoiceAccessSleepShortcut();
-    g_voice_access_paused_by_app = false;
-    g_voice_access_known_state = 1;
-  }
+  // Keep Voice Access asleep if Liyabona put it to sleep after a completed
+  // task. Closing Liyabona must not silently turn the microphone back on.
   if (emergency_stop_hotkey_registered_) {
     UnregisterHotKey(GetHandle(), kEmergencyStopHotkey);
     emergency_stop_hotkey_registered_ = false;

@@ -344,12 +344,24 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       final available = await _windowsAccessibilityChannel
           .invokeMethod<bool>('startVoiceAccess')
           .timeout(const Duration(seconds: 4));
+      var resumed = false;
+      if (available == true) {
+        // Wake Voice Access only when this app put it to sleep. This makes an
+        // explicit assistant activation the opt-in to another listening turn.
+        resumed =
+            await _windowsAccessibilityChannel
+                .invokeMethod<bool>('resumeVoiceAccess')
+                .timeout(const Duration(seconds: 2)) ??
+            false;
+      }
       await _windowsAccessibilityChannel.invokeMethod<void>('focusMainWindow');
       if (!mounted) return;
       setState(() {
         _windowsVoiceAccessAvailable = available == true;
         _windowsVoiceAccessStatus = available == true
-            ? 'Windows Voice Access is open and the message box is focused. If it is asleep or its microphone is off, wake it with its own controls.'
+            ? resumed
+                  ? 'Windows Voice Access is awake and the message box is focused.'
+                  : 'Windows Voice Access is open and the message box is focused. If it is asleep, activate the Liyabona assistant button to wake it.'
             : 'Windows Voice Access could not be started. Turn it on in Windows Settings > Accessibility > Speech, then return here.';
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1694,9 +1706,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
     setState(() => _assistantBusy = true);
     if (_isWindowsDesktop) {
-      // Copilot text is normally dictated through Voice Access. Mark the
-      // observed session so a successful task can temporarily sleep it during
-      // Liyabona's spoken completion message.
+      // Receiving dictated text confirms that Voice Access was listening.
+      // Native code ignores this if Liyabona already put it to sleep.
       try {
         await _windowsAccessibilityChannel
             .invokeMethod<bool>('markVoiceAccessListening')
@@ -1732,18 +1743,19 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
     }
     try {
-      await _speak(text);
+      final spokenText = voiceAccessPaused
+          ? '$text Voice Access is sleeping. Activate the Liyabona assistant button when you are ready to speak again.'
+          : text;
+      await _speak(spokenText);
       await _waitForSpeechToFinish();
-    } finally {
-      if (voiceAccessPaused) {
-        try {
-          await _windowsAccessibilityChannel
-              .invokeMethod<void>('resumeVoiceAccess')
-              .timeout(const Duration(seconds: 2));
-        } catch (_) {
-          // Leave Voice Access untouched if the Windows handoff is unavailable.
-        }
+      if (voiceAccessPaused && mounted) {
+        setState(() {
+          _windowsVoiceAccessStatus = 'Voice Access is sleeping after the completed task. Activate the Liyabona assistant button to wake it.';
+        });
       }
+    } catch (_) {
+      // Speech output failure must not wake Voice Access after a completed
+      // action. The receptionist can activate the assistant when ready.
     }
   }
 
@@ -1787,8 +1799,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     String phrase, {
     required bool powerpoint,
   }) async {
-    final command = phrase.toLowerCase();
-    final topic = _stripIntent(command, [
+    var command = phrase.toLowerCase().trim();
+    command = command.replaceFirst(
+      RegExp(
+        r'^(?:please\s+)?(?:open|launch|start)\s+(?:(?:microsoft)\s+)?(?:word|powerpoint|power point)\s+(?:and\s+)?',
+      ),
+      '',
+    );
+    var topic = _stripIntent(command, [
       'write a',
       'write an',
       'write',
@@ -1847,10 +1865,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       'using powerpoint',
       'using power point',
     ]);
+    topic = topic
+        .replaceFirst(
+          RegExp(r'^(?:a|an|new|in|using|microsoft|word|powerpoint)\s+'),
+          '',
+        )
+        .replaceFirst(RegExp(r'\s+(?:in|using)\s+(?:microsoft\s+)?word$'), '')
+        .trim();
     final kind = powerpoint ? 'presentation' : 'document';
-    if (topic.trim().isEmpty) {
-      return 'What should the $kind be about?';
-    }
     final title = _titleCase(
       topic
           .replaceAll(RegExp(r'\b(please|for me|as a word document)\b'), '')
@@ -1862,27 +1884,26 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               'Use only general, supportable information. Do not invent college policies, names, dates, statistics or promises.'
         : 'Write a useful, professional $topic. Use clear headings and paragraphs appropriate for a TVET student-support reception desk. '
               'Do not invent college policies, names, dates, statistics or promises. If facts are missing, use neutral wording.';
-    final generated = await _askModel(
-      instruction,
-      timeout: const Duration(seconds: 60),
-      maximumTokens: 384,
-    );
-    final body = generated?.reply.trim() ?? '';
-    if (body.isEmpty || body.length < 30) {
-      return 'I could not prepare the $kind because the local writing assistant did not return a complete draft. Nothing was saved.';
-    }
+    final generated = topic.isEmpty
+        ? null
+        : await _askModel(
+            instruction,
+            timeout: const Duration(seconds: 60),
+            maximumTokens: 384,
+          );
+    final generatedBody = generated?.reply.trim() ?? '';
+    final usedTemplate = topic.isEmpty || generatedBody.length < 120;
+    final body = usedTemplate
+        ? _officeDraftTemplate(topic: topic, powerpoint: powerpoint)
+        : generatedBody;
+    final documentTitle = title.isEmpty
+        ? (powerpoint ? 'Reception Presentation' : 'Reception Document')
+        : title;
     try {
       final result = await _windowsAccessibilityChannel
           .invokeMapMethod<String, dynamic>(
             powerpoint ? 'createPowerPoint' : 'createWordDocument',
-            {
-              'title': title.isEmpty
-                  ? (powerpoint
-                        ? 'Reception Presentation'
-                        : 'Reception Document')
-                  : title,
-              'body': body,
-            },
+            {'title': documentTitle, 'body': body},
           );
       if (result?['success'] != true) {
         final reason = result?['error']?.toString();
@@ -1897,7 +1918,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           _documents.insert(
             0,
             _Document(
-              title,
+              documentTitle,
               '$kind saved locally as $savedTitle.',
               DateTime.now(),
             ),
@@ -1909,12 +1930,35 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       if (!persisted) {
         return 'The $kind was saved in ${powerpoint ? 'PowerPoint' : 'Word'} as $savedTitle, but Liyabona could not update its document list.';
       }
-      return 'I created and saved the $kind as $savedTitle, and opened it in ${powerpoint ? 'PowerPoint' : 'Word'}.';
+      return usedTemplate
+          ? 'I created and saved a $kind template called $savedTitle, and opened it in ${powerpoint ? 'PowerPoint' : 'Word'}. The local AI did not finish a full draft, so the template uses clearly marked fields for details to complete.'
+          : 'I created and saved the $kind as $savedTitle, and opened it in ${powerpoint ? 'PowerPoint' : 'Word'}.';
     } on PlatformException catch (error) {
       return 'I could not create the $kind in Microsoft Office. ${error.message ?? 'Check that the application is installed.'}';
     } catch (_) {
       return 'I could not create the $kind in Microsoft Office. Check that the application is installed and available.';
     }
+  }
+
+  String _officeDraftTemplate({
+    required String topic,
+    required bool powerpoint,
+  }) {
+    final subject = topic.isEmpty ? 'Reception document' : topic;
+    if (powerpoint) {
+      return 'Title: ${_titleCase(subject)}\n\n'
+          'Slide 1 — Purpose\n[Add the purpose of this presentation.]\n\n'
+          'Slide 2 — Background\n[Add verified background information and its source.]\n\n'
+          'Slide 3 — Key information\n[Add confirmed details. Check college policies, dates and figures with an authorised source.]\n\n'
+          'Slide 4 — Next steps\n[List agreed actions and responsible people.]';
+    }
+    return 'Student Support Services\n${_titleCase(subject)}\n\n'
+        'Date: [Add date]\n\n'
+        'Purpose\n[Describe the purpose of this document.]\n\n'
+        'Background\n[Add verified background information and its source.]\n\n'
+        'Key information\n[Add confirmed details. Check college policies, dates and learner information with an authorised source.]\n\n'
+        'Next steps\n[List agreed actions and responsible people.]\n\n'
+        'Prepared by: Student Support Reception';
   }
 
   Future<bool> _confirmByKey(String details, {bool speakPrompt = true}) async {
