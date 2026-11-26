@@ -359,8 +359,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       if (!mounted) return;
       setState(() {
         _windowsVoiceAccessAvailable = false;
-        _windowsVoiceAccessStatus =
-            'Could not start Windows Voice Access. Turn it on in Windows Settings > Accessibility > Speech.';
+        _windowsVoiceAccessStatus = 'Could not start Windows Voice Access. Turn it on in Windows Settings > Accessibility > Speech.';
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _copilotInputFocus.requestFocus();
@@ -1716,7 +1715,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     }
   }
 
-  Future<void> _speakTaskResult(String text, {required bool taskSucceeded}) async {
+  Future<void> _speakTaskResult(
+    String text, {
+    required bool taskSucceeded,
+  }) async {
     var voiceAccessPaused = false;
     if (_isWindowsDesktop && taskSucceeded) {
       try {
@@ -1781,7 +1783,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     ).hasMatch(command);
   }
 
-  Future<String> _createOfficeDraft(String phrase, {required bool powerpoint}) async {
+  Future<String> _createOfficeDraft(
+    String phrase, {
+    required bool powerpoint,
+  }) async {
     final command = phrase.toLowerCase();
     final topic = _stripIntent(command, [
       'write a',
@@ -1867,10 +1872,18 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       return 'I could not prepare the $kind because the local writing assistant did not return a complete draft. Nothing was saved.';
     }
     try {
-      final result = await _windowsAccessibilityChannel.invokeMapMethod<String, dynamic>(
-        powerpoint ? 'createPowerPoint' : 'createWordDocument',
-        {'title': title.isEmpty ? (powerpoint ? 'Reception Presentation' : 'Reception Document') : title, 'body': body},
-      );
+      final result = await _windowsAccessibilityChannel
+          .invokeMapMethod<String, dynamic>(
+            powerpoint ? 'createPowerPoint' : 'createWordDocument',
+            {
+              'title': title.isEmpty
+                  ? (powerpoint
+                        ? 'Reception Presentation'
+                        : 'Reception Document')
+                  : title,
+              'body': body,
+            },
+          );
       if (result?['success'] != true) {
         final reason = result?['error']?.toString();
         return reason == null || reason.isEmpty
@@ -1881,7 +1894,14 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       final savedTitle = savedPath.split(Platform.pathSeparator).last;
       if (mounted) {
         setState(() {
-          _documents.insert(0, _Document(title, '$kind saved locally as $savedTitle.', DateTime.now()));
+          _documents.insert(
+            0,
+            _Document(
+              title,
+              '$kind saved locally as $savedTitle.',
+              DateTime.now(),
+            ),
+          );
           _go('Documents');
         });
       }
@@ -1998,8 +2018,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           _listenFailures = 0;
           setState(() {
             _listening = false;
-            _assistantError =
-                'Windows live speech recognition is unavailable. Trying bundled offline Whisper.';
+            _assistantError = 'Windows live speech recognition is unavailable. Trying bundled offline Whisper.';
             _transcript = 'Switching to the bundled offline recognizer.';
           });
           _refreshAssistantPopup();
@@ -2043,7 +2062,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             if (partial.isNotEmpty) {
               // Keep a partial hypothesis for manual review. Voice input never
               // sends itself to the command handler.
-              _finishVoiceDraft('Transcript ready. Review it and press Enter to send.');
+              _finishVoiceDraft(
+                'Transcript ready. Review it and press Enter to send.',
+              );
             } else if (status == 'done') {
               _windowsEmptyRecognitionCount++;
               if (_windowsEmptyRecognitionCount >= 3) {
@@ -2345,7 +2366,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       }
       if (recognized.length < 2 || confidence < 0.18) {
         _interaction.move(VoicePhase.idle);
-        _finishVoiceDraft('No clear words were transcribed. Try speaking again.');
+        _finishVoiceDraft(
+          'No clear words were transcribed. Try speaking again.',
+        );
         // Do not pass the same noisy clip to another recognizer or command route.
         return response?['available'] == true;
       }
@@ -2394,7 +2417,9 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
           _windowsLivePhrase = heard;
           _updateLiveTranscript(heard, finalResult: result.finalResult);
           if (result.finalResult && !_processing) {
-            _finishVoiceDraft('Transcript ready. Review it and press Enter to send.');
+            _finishVoiceDraft(
+              'Transcript ready. Review it and press Enter to send.',
+            );
           }
         },
       );
@@ -2406,8 +2431,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         _listenFailures = 0;
         setState(() {
           _listening = false;
-          _assistantError =
-              'Windows live speech recognition could not start. Trying bundled offline Whisper.';
+          _assistantError = 'Windows live speech recognition could not start. Trying bundled offline Whisper.';
           _transcript = 'Switching to the bundled offline recognizer.';
         });
         _refreshAssistantPopup();
@@ -2599,7 +2623,8 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
       final query = webSearch.group(1)!.trim();
       var opened = false;
       try {
-        opened = await _windowsAccessibilityChannel.invokeMethod<bool>(
+        opened =
+            await _windowsAccessibilityChannel.invokeMethod<bool>(
               'searchEdge',
               Uri.https('www.bing.com', '/search', {'q': query}).toString(),
             ) ??
@@ -3292,10 +3317,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
         command == 'help') {
       return false;
     }
-    if (isEmailDraftRequest(
-      command,
-      createIntent: _hasCreateIntent(command),
-    )) {
+    if (isEmailDraftRequest(command, createIntent: _hasCreateIntent(command))) {
       // Email drafting calls the local model once with an email-specific prompt
       // after the deterministic router has extracted the request details.
       return false;
@@ -3771,9 +3793,10 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
               .join('. '),
     'Learners' => 'Learner directory with illustrative contacts for registration, academic, financial aid and accessibility support.',
     'Knowledge' => 'Reception reference. Hours and campus directions should be confirmed with Student Support before sharing them as official information.',
-    'AI copilot' => _isWindowsDesktop
-        ? 'Liyabona AI is ready. Windows Voice Access enters speech in the focused message box; Liyabona sends it after three seconds without new typing.'
-        : 'Liyabona AI is ready for reception questions and app actions. Use the message box or microphone control.',
+    'AI copilot' =>
+      _isWindowsDesktop
+          ? 'Liyabona AI is ready. Windows Voice Access enters speech in the focused message box; Liyabona sends it after three seconds without new typing.'
+          : 'Liyabona AI is ready for reception questions and app actions. Use the message box or microphone control.',
     'Visitors' =>
       'Visitor register. ${_visitors.where((v) => v.checkedOut == null).length} visitors are currently checked in. ${_visitors.take(4).map((v) => '${v.name}, visiting ${v.host}').join('. ')}',
     'Tasks' =>
@@ -4012,6 +4035,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
             body: Row(
               children: [
                 _Sidebar(
+                  highContrast: _highContrast,
                   selected: _page,
                   items: _nav,
                   onSelect: _go,
@@ -4166,8 +4190,7 @@ class _LiyabonaAppState extends State<LiyabonaApp> {
     backgroundColor: forest,
     foregroundColor: Colors.white,
     child: _AnimatedAssistantCharacter(
-      active:
-          _voiceSession || _assistantBusy || _ttsSpeaking,
+      active: _voiceSession || _assistantBusy || _ttsSpeaking,
       speaking: _ttsSpeaking,
       listening: _listening,
       size: 46,
@@ -4258,7 +4281,7 @@ ThemeData _makeTheme(bool contrast) {
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    scaffoldBackgroundColor: contrast ? Colors.white : paper,
+    scaffoldBackgroundColor: contrast ? Colors.white : const Color(0xFFF1F7F5),
     fontFamily: 'Roboto',
     textTheme: ThemeData.light().textTheme.apply(
       bodyColor: ink,
@@ -4271,18 +4294,20 @@ ThemeData _makeTheme(bool contrast) {
       surfaceTintColor: Colors.transparent,
     ),
     cardTheme: CardThemeData(
-      color: contrast ? Colors.white : Colors.white.withValues(alpha: .91),
-      elevation: contrast ? 0 : 2,
-      shadowColor: forest.withValues(alpha: .08),
+      color: contrast ? Colors.white : Colors.white.withValues(alpha: .84),
+      elevation: contrast ? 0 : 3,
+      shadowColor: forest.withValues(alpha: .10),
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-        side: BorderSide(color: contrast ? Colors.black : Colors.white),
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(
+          color: contrast ? Colors.black : const Color(0xFFDCEAE5),
+        ),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: const Color(0xFFF9FCFB),
+      fillColor: contrast ? Colors.white : const Color(0xFFF8FCFA),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(17),
         borderSide: const BorderSide(color: line),
@@ -4301,10 +4326,10 @@ ThemeData _makeTheme(bool contrast) {
       style: FilledButton.styleFrom(
         backgroundColor: forest,
         foregroundColor: Colors.white,
-        minimumSize: const Size(48, 48),
-        elevation: contrast ? 0 : 2,
-        shadowColor: forest.withValues(alpha: .18),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+        minimumSize: const Size(48, 50),
+        elevation: contrast ? 0 : 3,
+        shadowColor: forest.withValues(alpha: .22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         textStyle: const TextStyle(fontWeight: FontWeight.w700),
       ),
     ),
@@ -4326,130 +4351,179 @@ ThemeData _makeTheme(bool contrast) {
 
 class _Sidebar extends StatelessWidget {
   const _Sidebar({
+    required this.highContrast,
     required this.selected,
     required this.items,
     required this.onSelect,
     required this.onAssistant,
   });
+  final bool highContrast;
   final String selected;
   final List<_NavItem> items;
   final ValueChanged<String> onSelect;
   final VoidCallback onAssistant;
   @override
-  Widget build(BuildContext context) => Container(
-    width: 254,
-    color: const Color(0xFFF9FCFB),
-    child: SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(23, 22, 18, 22),
-            child: Row(
-              children: [
-                const _BrandIcon(size: 42),
-                const SizedBox(width: 11),
-                const Expanded(
+  Widget build(BuildContext context) => ClipRect(
+    child: BackdropFilter(
+      filter: ImageFilter.blur(
+        sigmaX: highContrast ? 0 : 18,
+        sigmaY: highContrast ? 0 : 18,
+      ),
+      child: Container(
+        width: 254,
+        decoration: BoxDecoration(
+          color: highContrast ? Colors.white : null,
+          gradient: highContrast
+              ? null
+              : LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: .91),
+                    const Color(0xFFEAF5F1).withValues(alpha: .88),
+                  ],
+                ),
+          border: Border(
+            right: BorderSide(
+              color: highContrast ? Colors.black : const Color(0xFFDCEAE5),
+            ),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(23, 22, 18, 22),
+                child: Row(
+                  children: [
+                    const _BrandIcon(size: 42),
+                    const SizedBox(width: 11),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Liyabona',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 17,
+                              color: ink,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'RECEPTION DESK',
+                            style: TextStyle(
+                              fontSize: 9,
+                              letterSpacing: 1.2,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF77847D),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(21, 4, 14, 8),
+                child: Text(
+                  'WORKSPACE',
+                  style: TextStyle(
+                    fontSize: 10,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF89958F),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  children: [
+                    for (final item in items)
+                      _NavButton(
+                        item: item,
+                        selected: selected == item.label,
+                        onTap: () => onSelect(item.label),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: highContrast ? Colors.white : null,
+                    gradient: highContrast
+                        ? null
+                        : LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.white.withValues(alpha: .94),
+                              mint.withValues(alpha: .76),
+                            ],
+                          ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: highContrast ? Colors.black : Colors.white,
+                      width: highContrast ? 1.5 : 1.4,
+                    ),
+                    boxShadow: highContrast
+                        ? const []
+                        : [
+                            BoxShadow(
+                              color: forest.withValues(alpha: .07),
+                              blurRadius: 18,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Row(
+                        children: [
+                          Icon(Icons.auto_awesome_rounded, color: forest),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Liyabona AI',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 7),
                       Text(
-                        'Liyabona',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 17,
-                          color: ink,
+                        'Ask it to navigate, write notes, set reminders and manage reception tasks.',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          height: 1.4,
+                          color: Color(0xFF63736B),
                         ),
                       ),
-                      SizedBox(height: 2),
-                      Text(
-                        'RECEPTION DESK',
-                        style: TextStyle(
-                          fontSize: 9,
-                          letterSpacing: 1.2,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF77847D),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: _GlassButton(
+                          onPressed: onAssistant,
+                          icon: Icons.auto_awesome_rounded,
+                          label: 'Open AI assistant',
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(21, 4, 14, 8),
-            child: Text(
-              'WORKSPACE',
-              style: TextStyle(
-                fontSize: 10,
-                letterSpacing: 1.1,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF89958F),
               ),
-            ),
+            ],
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                for (final item in items)
-                  _NavButton(
-                    item: item,
-                    selected: selected == item.label,
-                    onTap: () => onSelect(item.label),
-                  ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F7F5),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: line),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.auto_awesome_rounded, color: forest),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Liyabona AI',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: ink,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 7),
-                  Text(
-                    'Ask it to navigate, write notes, set reminders and manage reception tasks.',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      height: 1.4,
-                      color: Color(0xFF63736B),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: _GlassButton(
-                      onPressed: onAssistant,
-                      icon: Icons.auto_awesome_rounded,
-                      label: 'Open AI assistant',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     ),
   );
@@ -4515,54 +4589,76 @@ class _DesktopTopbar extends StatelessWidget {
   final bool highContrast, largeText;
   final VoidCallback onContrast, onText, onRead;
   @override
-  Widget build(BuildContext context) => Container(
-    height: 76,
-    padding: const EdgeInsets.symmetric(horizontal: 30),
-    decoration: const BoxDecoration(
-      color: Colors.white,
-      border: Border(bottom: BorderSide(color: line)),
-    ),
-    child: Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'Student Support Services  /  Reception',
-            style: TextStyle(
-              color: Color(0xFF66756D),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) => ClipRect(
+    child: BackdropFilter(
+      filter: ImageFilter.blur(
+        sigmaX: highContrast ? 0 : 18,
+        sigmaY: highContrast ? 0 : 18,
+      ),
+      child: Container(
+        height: 76,
+        padding: const EdgeInsets.symmetric(horizontal: 30),
+        decoration: BoxDecoration(
+          color: highContrast ? Colors.white : null,
+          gradient: highContrast
+              ? null
+              : LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white.withValues(alpha: .95),
+                    Colors.white.withValues(alpha: .84),
+                  ],
+                ),
+          border: Border(
+            bottom: BorderSide(
+              color: highContrast ? Colors.black : const Color(0xFFDCEAE5),
             ),
           ),
         ),
-        IconButton(
-          tooltip: 'Read this screen aloud',
-          onPressed: onRead,
-          icon: const Icon(Icons.volume_up_outlined),
-        ),
-        IconButton(
-          tooltip: largeText ? 'Standard text' : 'Larger text',
-          onPressed: onText,
-          icon: const Icon(Icons.text_fields_rounded),
-        ),
-        IconButton(
-          tooltip: highContrast ? 'Standard contrast' : 'High contrast',
-          onPressed: onContrast,
-          icon: const Icon(Icons.contrast_rounded),
-        ),
-        const SizedBox(width: 8),
-        const CircleAvatar(
-          radius: 18,
-          backgroundColor: mint,
-          child: Text(
-            'NM',
-            style: TextStyle(
-              color: forest,
-              fontWeight: FontWeight.w800,
-              fontSize: 11,
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Student Support Services  /  Reception',
+                style: TextStyle(
+                  color: Color(0xFF66756D),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ),
+            IconButton(
+              tooltip: 'Read this screen aloud',
+              onPressed: onRead,
+              icon: const Icon(Icons.volume_up_outlined),
+            ),
+            IconButton(
+              tooltip: largeText ? 'Standard text' : 'Larger text',
+              onPressed: onText,
+              icon: const Icon(Icons.text_fields_rounded),
+            ),
+            IconButton(
+              tooltip: highContrast ? 'Standard contrast' : 'High contrast',
+              onPressed: onContrast,
+              icon: const Icon(Icons.contrast_rounded),
+            ),
+            const SizedBox(width: 8),
+            const CircleAvatar(
+              radius: 18,
+              backgroundColor: mint,
+              child: Text(
+                'NM',
+                style: TextStyle(
+                  color: forest,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     ),
   );
 }
@@ -5096,19 +5192,25 @@ class _GlassSurface extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Colors.white.withValues(alpha: .94),
-              const Color(0xFFF4FBF8).withValues(alpha: .86),
+              Colors.white.withValues(alpha: .88),
+              const Color(0xFFF3FAF7).withValues(alpha: .76),
+              const Color(0xFFE7F3EF).withValues(alpha: .72),
             ],
           ),
           borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: Colors.white.withValues(alpha: .92)),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: .96),
+            width: 1.25,
+          ),
           boxShadow: [
             BoxShadow(
-              color: forest.withValues(alpha: .08),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
+              color: forest.withValues(alpha: .075),
+              blurRadius: 28,
+              spreadRadius: -5,
+              offset: const Offset(0, 10),
             ),
           ],
+          backgroundBlendMode: BlendMode.srcOver,
         ),
         child: child,
       ),
@@ -5165,14 +5267,16 @@ class _GlassButton extends StatelessWidget {
                   ),
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: .78),
-                    width: 1.2,
+                    color: prominent
+                        ? Colors.white.withValues(alpha: .42)
+                        : Colors.white,
+                    width: 1.35,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: forest.withValues(alpha: prominent ? .18 : .07),
-                      blurRadius: 16,
-                      offset: const Offset(0, 5),
+                      color: forest.withValues(alpha: prominent ? .20 : .08),
+                      blurRadius: 20,
+                      offset: const Offset(0, 7),
                     ),
                   ],
                 ),
@@ -7280,12 +7384,12 @@ class _AssistantPopup extends StatelessWidget {
                   IconButton(
                     tooltip: 'Stop Liyabona AI and close',
                     onPressed: onClose,
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 30,
-                        height: 30,
-                      ),
-                      icon: const Icon(Icons.close_rounded, size: 18),
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 30,
+                      height: 30,
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 18),
                   ),
                 ],
               ),
